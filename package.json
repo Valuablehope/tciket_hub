@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "homepage": "https://valuablehope.github.io/tciket_hub/",
+  "homepage": "https://valuablehope.github.io/tciket_hub/index.html",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
