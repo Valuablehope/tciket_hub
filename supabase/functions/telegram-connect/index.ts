@@ -11,8 +11,9 @@ const corsHeaders = {
 console.log('🚀 Telegram connect function started');
 
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders, status: 200 });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
@@ -34,31 +35,42 @@ serve(async (req) => {
 
     const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
 
-    const res = await fetch(`https://api.telegram.org/bot${telegramBotToken}/getUpdates`);
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error('Telegram API error:', errText);
+    // Fetch updates from Telegram
+    const telegramResponse = await fetch(`https://api.telegram.org/bot${telegramBotToken}/getUpdates`);
+
+    if (!telegramResponse.ok) {
+      const errorText = await telegramResponse.text();
+      console.error('❌ Telegram API error:', errorText);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to contact Telegram API' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'Failed to fetch updates from Telegram API' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const data = await res.json();
-    const updates = Array.isArray(data.result) ? data.result : [];
+    const responseData = await telegramResponse.json();
+    const updates = Array.isArray(responseData.result) ? responseData.result : [];
 
     let chatId: string | null = null;
+
     for (const update of updates) {
-      const from = update?.message?.from;
-      if (from && from.username && from.username.toLowerCase() === cleanUsername.toLowerCase()) {
+      const fromUser = update?.message?.from;
+      if (
+        fromUser &&
+        fromUser.username &&
+        fromUser.username.toLowerCase() === cleanUsername.toLowerCase()
+      ) {
         chatId = update.message.chat.id.toString();
+        break;
       }
     }
 
     if (!chatId) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Telegram user not verified. Message the bot with /start.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: "Telegram user not found. Please message the bot with /start first.",
+        }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -67,9 +79,9 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
-    console.error('Unexpected error:', err);
+    console.error('❌ Internal Server Error:', err);
     return new Response(
-      JSON.stringify({ success: false, error: 'Internal error' }),
+      JSON.stringify({ success: false, error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
