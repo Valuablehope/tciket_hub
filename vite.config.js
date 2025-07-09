@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 export default defineConfig({
-  base: '/tciket_hub/', // 🔁 must match repo name exactly!
+  base: '/tciket_hub/',
   plugins: [react()],
   build: {
     outDir: 'dist',
