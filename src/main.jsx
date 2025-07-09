@@ -14,12 +14,25 @@ const queryClient = new QueryClient({
   },
 });
 
+console.log('🚀 Starting app...');
+
+// Test component to see if React is working
+const TestComponent = () => {
+  console.log('✅ TestComponent is rendering');
+  return <div style={{ padding: '20px', fontSize: '18px' }}>Test Component is Working!</div>;
+};
+
+// Temporarily use TestComponent instead of App to debug
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <HashRouter>
-        <App />
+        {/* Temporarily replace <App /> with <TestComponent /> to test */}
+        <TestComponent />
+        {/* <App /> */}
       </HashRouter>
     </QueryClientProvider>
   </React.StrictMode>
 );
+
+console.log('🎯 React root created and render called');
