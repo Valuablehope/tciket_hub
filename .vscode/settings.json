@@ -1,0 +1,39 @@
+{
+  // Disable linting for unknown CSS at-rules
+  "css.lint.unknownAtRules": "ignore",
+  "scss.lint.unknownAtRules": "ignore",
+  "less.lint.unknownAtRules": "ignore",
+
+  // Disable full validation (optional)
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
+
+  // Tailwind IntelliSense settings
+  "tailwindCSS.includeLanguages": {
+    "css": "css",
+    "postcss": "css",
+    "javascript": "javascript",
+    "javascriptreact": "javascript",
+    "typescriptreact": "typescriptreact",
+    "html": "html"
+  },
+
+  // Deno-specific setup for Supabase Edge Functions
+  "deno.enable": true,
+  "deno.enablePaths": ["./supabase/functions"],
+  "deno.lint": true,
+  "deno.unstable": [],
+  "deno.suggest.imports.hosts": {
+    "https://deno.land": true,
+    "https://esm.sh": true
+  },
+
+  // Format using Deno extension
+  "[typescript]": {
+    "editor.defaultFormatter": "denoland.vscode-deno"
+  },
+
+  // Prevent auto-imports from package.json (not used in Deno)
+  "typescript.preferences.includePackageJsonAutoImports": "off"
+}
