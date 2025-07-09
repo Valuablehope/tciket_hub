@@ -26,8 +26,8 @@ function setupSupabaseMocks() {
 
 beforeEach(async () => {
   vi.resetModules();
-  process.env.VITE_SUPABASE_URL = 'http://localhost';
-  process.env.VITE_SUPABASE_ANON_KEY = 'anon';
+  process.env.VITE_SUPABASE_URL = 'https://hpncjwegxpkzjwpdwrgi.supabase.co';
+  process.env.VITE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwbmNqd2VneHBremp3cGR3cmdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE4ODY4MzQsImV4cCI6MjA2NzQ2MjgzNH0.2UHHKiG9qnmfnXIMzVCyKODImdkQttdQW9Tw43JSOoI';
   setupSupabaseMocks();
   ({ db } = await import('../src/lib/supabase.js'));
 });
