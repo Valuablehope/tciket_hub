@@ -22,14 +22,41 @@ const TestComponent = () => {
   return <div style={{ padding: '20px', fontSize: '18px' }}>Test Component is Working!</div>;
 };
 
-// Temporarily use TestComponent instead of App to debug
+// Add error boundary to catch React errors
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('🚨 React Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', color: 'red' }}>
+          <h2>Something went wrong:</h2>
+          <pre>{this.state.error?.toString()}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <HashRouter>
-        {/* Temporarily replace <App /> with <TestComponent /> to test */}
-        <TestComponent />
-        {/* <App /> */}
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </HashRouter>
     </QueryClientProvider>
   </React.StrictMode>
