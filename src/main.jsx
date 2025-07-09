@@ -16,12 +16,6 @@ const queryClient = new QueryClient({
 
 console.log('🚀 Starting app...');
 
-// Test component to see if React is working
-const TestComponent = () => {
-  console.log('✅ TestComponent is rendering');
-  return <div style={{ padding: '20px', fontSize: '18px' }}>Test Component is Working!</div>;
-};
-
 // Add error boundary to catch React errors
 class ErrorBoundary extends React.Component {
   constructor(props) {
