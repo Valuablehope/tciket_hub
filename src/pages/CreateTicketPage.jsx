@@ -35,7 +35,20 @@ const CreateTicketPage = () => {
         // assigned_to: null (you can add a selector if needed)
       };
 
-      await db.createTicket(ticketPayload);
+      const newTicket = await db.createTicket(ticketPayload);
+
+      // Send notification about the newly created ticket
+      try {
+        await db.sendNotification(
+          'ticket_created',
+          newTicket.id,
+          'Ticket created'
+        );
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+        // Don't block navigation if notification fails
+      }
+
       navigate('/tickets');
     } catch (error) {
       setError('root', {
