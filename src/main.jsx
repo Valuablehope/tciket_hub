@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <HashRouter basename="/tciket_hub">
+      <HashRouter>
         <App />
       </HashRouter>
     </QueryClientProvider>
