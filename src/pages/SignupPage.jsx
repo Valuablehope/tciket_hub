@@ -42,22 +42,22 @@ const SignupPage = () => {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 flex items-center justify-center p-4">
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 -right-40 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-pulse"></div>
-          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white/90 via-white/80 to-gray-100/80 relative overflow-hidden">
+        {/* Smokey white background */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/60 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-gray-200/40 rounded-full blur-3xl animate-pulse delay-1000"></div>
         </div>
-        
-        <div className="relative w-full max-w-md">
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full mb-6 shadow-lg">
-              <CheckCircle className="w-8 h-8 text-white" />
+        <div className="relative w-full max-w-lg">
+          <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-10 shadow-2xl border border-white/60 text-center">
+            <div className="flex items-center justify-center w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-100 rounded-full mb-6 shadow-lg mx-auto">
+              <CheckCircle className="w-10 h-10 text-green-500" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-4">Account Created!</h1>
-            <p className="text-white/80 mb-4">Please check your email to verify your account.</p>
-            <p className="text-white/60 text-sm">Redirecting to login page...</p>
-            <div className="mt-6 w-full bg-white/20 rounded-full h-1">
-              <div className="bg-gradient-to-r from-emerald-400 to-teal-400 h-1 rounded-full animate-pulse"></div>
+            <h1 className="text-3xl font-extrabold text-gray-800 mb-3">Account Created!</h1>
+            <p className="text-gray-700 mb-3">Please check your email to verify your account.</p>
+            <p className="text-gray-500 text-sm">Redirecting to login page...</p>
+            <div className="mt-8 w-full bg-gray-200/60 rounded-full h-2">
+              <div className="bg-gradient-to-r from-gray-300 to-gray-100 h-2 rounded-full animate-pulse"></div>
             </div>
           </div>
         </div>
@@ -66,32 +66,29 @@ const SignupPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-700 flex items-center justify-center p-4">
-      {/* Background animation */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white/90 via-white/80 to-gray-100/80 relative overflow-hidden">
+      {/* Smokey white background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/60 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-gray-200/40 rounded-full blur-3xl animate-pulse delay-1000"></div>
       </div>
-
-      <div className="relative w-full max-w-md">
-        {/* Main card */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
+      <div className="relative w-full max-w-lg">
+        <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-10 shadow-2xl border border-white/60">
           {/* Header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full mb-4 shadow-lg">
-              <Sparkles className="w-8 h-8 text-white" />
+          <div className="text-center mb-10">
+            <div className="flex items-center justify-center w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-100 rounded-full mb-5 shadow-lg mx-auto">
+              <Sparkles className="w-10 h-10 text-yellow-400" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Join Ticket Hub</h1>
-            <p className="text-white/70">Create your account to get started</p>
+            <h1 className="text-3xl font-extrabold text-gray-800 mb-2">Create your account</h1>
+            <p className="text-gray-500">Join Ticket Hub to get started</p>
           </div>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             {/* Full Name */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white/90">Full Name</label>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Full Name</label>
               <input
                 type="text"
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent backdrop-blur-sm transition-all"
+                className={`w-full px-4 py-3 bg-white/60 border ${errors.fullName ? 'border-red-300' : 'border-gray-200'} rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all`}
                 placeholder="Enter your full name"
                 {...register('fullName', {
                   required: 'Full name is required',
@@ -99,16 +96,15 @@ const SignupPage = () => {
                 })}
               />
               {errors.fullName && (
-                <p className="text-red-300 text-sm">{errors.fullName.message}</p>
+                <p className="text-red-400 text-xs mt-1">{errors.fullName.message}</p>
               )}
             </div>
-
             {/* Email */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white/90">Email</label>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
               <input
                 type="email"
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent backdrop-blur-sm transition-all"
+                className={`w-full px-4 py-3 bg-white/60 border ${errors.email ? 'border-red-300' : 'border-gray-200'} rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all`}
                 placeholder="Enter your email"
                 {...register('email', {
                   required: 'Email is required',
@@ -116,35 +112,33 @@ const SignupPage = () => {
                 })}
               />
               {errors.email && (
-                <p className="text-red-300 text-sm">{errors.email.message}</p>
+                <p className="text-red-400 text-xs mt-1">{errors.email.message}</p>
               )}
             </div>
-
             {/* Base */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white/90">Base</label>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Base</label>
               <select
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent backdrop-blur-sm transition-all"
+                className={`w-full px-4 py-3 bg-white/60 border ${errors.base ? 'border-red-300' : 'border-gray-200'} rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all`}
                 defaultValue=""
                 {...register('base', { required: 'Please select a base' })}
               >
-                <option value="" disabled className="bg-gray-800">-- Select your base --</option>
-                <option value="South" className="bg-gray-800">South</option>
-                <option value="BML" className="bg-gray-800">BML</option>
-                <option value="North" className="bg-gray-800">North</option>
+                <option value="" disabled>-- Select your base --</option>
+                <option value="South">South</option>
+                <option value="BML">BML</option>
+                <option value="North">North</option>
               </select>
               {errors.base && (
-                <p className="text-red-300 text-sm">{errors.base.message}</p>
+                <p className="text-red-400 text-xs mt-1">{errors.base.message}</p>
               )}
             </div>
-
             {/* Password */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white/90">Password</label>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent backdrop-blur-sm transition-all"
+                  className={`w-full px-4 py-3 pr-12 bg-white/60 border ${errors.password ? 'border-red-300' : 'border-gray-200'} rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all`}
                   placeholder="Create a password"
                   {...register('password', {
                     required: 'Password is required',
@@ -158,23 +152,23 @@ const SignupPage = () => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
+                  tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
               {errors.password && (
-                <p className="text-red-300 text-sm">{errors.password.message}</p>
+                <p className="text-red-400 text-xs mt-1">{errors.password.message}</p>
               )}
             </div>
-
             {/* Confirm Password */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white/90">Confirm Password</label>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Confirm Password</label>
               <div className="relative">
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
-                  className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent backdrop-blur-sm transition-all"
+                  className={`w-full px-4 py-3 pr-12 bg-white/60 border ${errors.confirmPassword ? 'border-red-300' : 'border-gray-200'} rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all`}
                   placeholder="Confirm your password"
                   {...register('confirmPassword', {
                     required: 'Please confirm your password',
@@ -184,28 +178,27 @@ const SignupPage = () => {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
+                  tabIndex={-1}
                 >
                   {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="text-red-300 text-sm">{errors.confirmPassword.message}</p>
+                <p className="text-red-400 text-xs mt-1">{errors.confirmPassword.message}</p>
               )}
             </div>
-
             {/* Error message */}
             {errors.root && (
-              <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-3">
-                <p className="text-red-300 text-sm">{errors.root.message}</p>
+              <div className="bg-red-100 border border-red-300 rounded-xl p-3 text-center">
+                <p className="text-red-500 text-sm">{errors.root.message}</p>
               </div>
             )}
-
             {/* Submit button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold py-3 px-6 rounded-xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-400 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl"
+              className="w-full bg-gray-800 text-white font-semibold py-3 px-6 rounded-xl hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl"
             >
               {loading ? (
                 <div className="flex items-center justify-center">
@@ -219,21 +212,20 @@ const SignupPage = () => {
               )}
             </button>
           </form>
-
           {/* Footer */}
-          <div className="mt-6 text-center">
-            <div className="border-t border-white/20 pt-4">
-              <p className="text-white/70 text-sm">
+          <div className="mt-8 text-center">
+            <div className="border-t border-gray-200 pt-4">
+              <p className="text-gray-600 text-sm">
                 Already have an account?{' '}
                 <Link
                   to="/login"
-                  className="text-white font-semibold hover:underline transition-all"
+                  className="text-gray-900 font-semibold hover:underline transition-all"
                 >
                   Sign in
                 </Link>
               </p>
             </div>
-            <p className="text-white/50 text-xs mt-3">
+            <p className="text-gray-400 text-xs mt-3">
               By creating an account, you agree to our Terms & Privacy Policy
             </p>
           </div>
