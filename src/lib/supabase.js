@@ -289,10 +289,11 @@ export const db = {
         .from('user_settings')
         .select('telegram_notifications, ticket_updates, assignment_notifications, telegram_chat_id, telegram_is_connected')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single()
 
       if (error) throw error;
       
+      // Return null if no settings found, or the data if found
       return data;
     } catch (error) {
       console.error('Error getting notification settings:', error);
@@ -309,7 +310,7 @@ export const db = {
 
       if (error) throw error;
       
-      return data;
+      return data || []; // Return empty array if no data
     } catch (error) {
       console.error('Error getting users with notification enabled:', error);
       throw error;
@@ -318,23 +319,39 @@ export const db = {
 
   // Tickets
   async getTickets(filters = {}) {
-    let query = supabase
-      .from('tickets')
-      .select(`
-        *,
-        creator_profile:profiles!tickets_created_by_fkey(full_name),
-        assignee_profile:profiles!tickets_assigned_to_fkey(full_name)
-      `)
-      .order('created_at', { ascending: false });
+    try {
+      // Use RPC function to bypass RLS issues
+      const { data, error } = await supabase.rpc('get_tickets_with_profiles', {
+        filter_base: filters.base || null,
+        filter_status: filters.status || null,
+        filter_created_by: filters.created_by || null,
+        filter_assigned_to: filters.assigned_to || null
+      });
 
-    if (filters.base) query = query.eq('base', filters.base);
-    if (filters.status) query = query.eq('status', filters.status);
-    if (filters.created_by) query = query.eq('created_by', filters.created_by);
-    if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to);
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error in getTickets RPC, falling back to direct query:', error);
+      
+      // Fallback to original query if RPC fails
+      let query = supabase
+        .from('tickets')
+        .select(`
+          *,
+          creator_profile:profiles!tickets_created_by_fkey(full_name),
+          assignee_profile:profiles!tickets_assigned_to_fkey(full_name)
+        `)
+        .order('created_at', { ascending: false });
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+      if (filters.base) query = query.eq('base', filters.base);
+      if (filters.status) query = query.eq('status', filters.status);
+      if (filters.created_by) query = query.eq('created_by', filters.created_by);
+      if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to);
+
+      const { data, error: fallbackError } = await query;
+      if (fallbackError) throw fallbackError;
+      return data;
+    }
   },
 
   async getAllTickets() {
@@ -356,17 +373,31 @@ export const db = {
   },
 
   async getTicket(id) {
-    const { data, error } = await supabase
-      .from('tickets')
-      .select(`
-        *,
-        creator_profile:profiles!tickets_created_by_fkey(full_name),
-        assignee_profile:profiles!tickets_assigned_to_fkey(full_name)
-      `)
-      .eq('id', id)
-      .single();
-    if (error) throw error;
-    return data;
+    try {
+      // Use RPC function to bypass RLS issues
+      const { data, error } = await supabase.rpc('get_ticket_with_profiles', {
+        ticket_id: id
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error in getTicket RPC, falling back to direct query:', error);
+      
+      // Fallback to original query if RPC fails
+      const { data, error: fallbackError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          creator_profile:profiles!tickets_created_by_fkey(full_name),
+          assignee_profile:profiles!tickets_assigned_to_fkey(full_name)
+        `)
+        .eq('id', id)
+        .single();
+      
+      if (fallbackError) throw fallbackError;
+      return data;
+    }
   },
 
   async createTicket(ticketData) {
@@ -386,6 +417,15 @@ export const db = {
       .eq('id', id)
       .select()
       .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteTicket(id) {
+    const { data, error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('id', id);
     if (error) throw error;
     return data;
   },
@@ -425,25 +465,49 @@ export const db = {
   async sendTelegramNotification(type, ticketId, message, targetUserId = null) {
     try {
       let chat_ids = [];
+      let recipientInfo = [];
       
       if (targetUserId) {
         // Send to specific user
         const settings = await this.getUserNotificationSettings(targetUserId);
+        console.log(`Notification settings for user ${targetUserId}:`, settings);
+        
         if (settings?.telegram_is_connected && settings?.telegram_notifications && settings?.telegram_chat_id) {
           chat_ids = [settings.telegram_chat_id];
+          recipientInfo.push(`User ${targetUserId} (connected)`);
+        } else {
+          console.log(`User ${targetUserId} cannot receive notifications:`, {
+            telegram_is_connected: settings?.telegram_is_connected,
+            telegram_notifications: settings?.telegram_notifications,
+            has_chat_id: !!settings?.telegram_chat_id
+          });
         }
       } else {
         // Send to all users with telegram notifications enabled
         const users = await this.getUsersWithNotificationEnabled('telegram_notifications');
-        chat_ids = users
-          .filter(user => user.telegram_is_connected && user.telegram_chat_id)
-          .map(user => user.telegram_chat_id);
+        console.log('All users with notifications enabled:', users);
+        
+        const validUsers = users.filter(user => user.telegram_is_connected && user.telegram_chat_id);
+        chat_ids = validUsers.map(user => user.telegram_chat_id);
+        recipientInfo = validUsers.map(user => `User ${user.user_id}`);
+        
+        console.log(`Found ${validUsers.length} valid recipients out of ${users.length} users with notifications enabled`);
       }
 
       if (chat_ids.length === 0) {
-        console.log('No recipients found for Telegram notification');
-        return { success: true, recipients: 0 };
+        const reason = targetUserId ? 
+          'Target user does not have Telegram configured' : 
+          'No users have Telegram properly configured';
+        console.log(`No recipients found for Telegram notification: ${reason}`);
+        return { 
+          success: true, 
+          recipients: 0, 
+          message: reason,
+          details: recipientInfo
+        };
       }
+
+      console.log(`Sending Telegram notification to ${chat_ids.length} recipients:`, chat_ids);
 
       // Call your existing Edge Function
       const { data, error } = await supabase.functions.invoke(
@@ -463,10 +527,21 @@ export const db = {
         throw error;
       }
       
-      return { success: true, recipients: chat_ids.length, data };
+      console.log('Telegram notification sent successfully:', data);
+      return { 
+        success: true, 
+        recipients: chat_ids.length, 
+        data,
+        details: recipientInfo
+      };
     } catch (error) {
       console.error('Error sending Telegram notification:', error);
-      throw error;
+      // Don't throw the error, just log it and return a failed result
+      return { 
+        success: false, 
+        error: error.message, 
+        recipients: 0 
+      };
     }
   },
 
@@ -476,7 +551,8 @@ export const db = {
       return await this.sendTelegramNotification(type, ticketId, message, targetUserId);
     } catch (error) {
       console.error('Error sending notification:', error);
-      throw error;
+      // Don't throw the error, just return a failed result
+      return { success: false, error: error.message, recipients: 0 };
     }
   }
 };

@@ -16,38 +16,55 @@ const DashboardPage = () => {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
-  // 1) Fetch aggregated stats via RPC
+  // Helper function to determine if user should see filtered data
+  const shouldFilterByBase = profile?.role === 'User';
+  const userBase = profile?.base;
+
   const {
     data: stats,
     isLoading: statsLoading,
     error: statsError,
   } = useQuery({
-    queryKey: ['ticketStats'],
-    queryFn: () => db.getTicketStats(),
-    refetchInterval: 60000, // every minute
+    queryKey: ['ticketStats', shouldFilterByBase ? userBase : 'all'],
+    queryFn: () => shouldFilterByBase 
+      ? db.getTicketStats({ base: userBase })
+      : db.getTicketStats(),
+    refetchInterval: 60000,
+    enabled: !!profile, // Only run when profile is loaded
   });
 
-  // 2) Fetch recent tickets
   const {
     data: recentTickets = [],
     isLoading: ticketsLoading,
     error: ticketsError,
   } = useQuery({
-    queryKey: ['recentTickets'],
-    queryFn: () => db.getTickets(),
-    refetchInterval: 300000, // every 5 minutes
+    queryKey: ['recentTickets', shouldFilterByBase ? userBase : 'all'],
+    queryFn: () => shouldFilterByBase 
+      ? db.getTickets({ base: userBase })
+      : db.getTickets(),
+    refetchInterval: 300000,
+    enabled: !!profile, // Only run when profile is loaded
   });
 
-  // 3) Real-time subscription: invalidate both queries on any change
   useEffect(() => {
+    if (!profile) return;
+
     const channel = subscriptions.tickets(() => {
-      queryClient.invalidateQueries(['ticketStats']);
-      queryClient.invalidateQueries(['recentTickets']);
+      queryClient.invalidateQueries(['ticketStats', shouldFilterByBase ? userBase : 'all']);
+      queryClient.invalidateQueries(['recentTickets', shouldFilterByBase ? userBase : 'all']);
     });
     return () => channel.unsubscribe();
-  }, [queryClient]);
+  }, [queryClient, profile, shouldFilterByBase, userBase]);
 
-  // 4) Handle errors & loading
+  // Show loading while profile is being fetched
+  if (!profile) {
+    return (
+      <div className="flex justify-center items-center h-full">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
   if (statsError || ticketsError) {
     return (
       <div className="text-red-600">
@@ -64,22 +81,25 @@ const DashboardPage = () => {
     );
   }
 
-  // 5) Destructure RPC output with defaults
   const {
     total = 0,
     open = 0,
     in_progress: inProgress = 0,
     resolved = 0,
     avg_resolution_time: avgResolutionTime = 'N/A',
-    satisfaction = 'N/A',
+    avg_resolution_time_current: avgCurrent = 0,
+    avg_resolution_time_prev: avgPrev = 0,
   } = stats || {};
 
-  const formattedSatisfaction =
-    typeof satisfaction === 'number' ? `${satisfaction}%` : satisfaction;
+  const resolutionTrend = avgPrev > 0
+    ? `${Math.abs(((avgCurrent - avgPrev) / avgPrev) * 100).toFixed(1)}% ${
+        avgCurrent < avgPrev ? 'faster' : 'slower'
+      } than last month`
+    : 'No previous data';
+  const resolutionTrendUp = avgCurrent < avgPrev;
 
   const recent = recentTickets.slice(0, 5);
 
-  // 6) Badge helpers
   const getStatusBadge = (status) => ({
     Open: 'badge-error',
     'In Progress': 'badge-warning',
@@ -92,13 +112,13 @@ const DashboardPage = () => {
     Low: 'badge-success',
   }[priority] || 'badge-secondary');
 
-  // 7) Render
   return (
     <div className="space-y-6">
-      {/* Welcome */}
       <div className="bg-gradient-to-r from-primary-600 to-primary-700 rounded-lg shadow-lg text-white p-6">
         <h1 className="text-2xl font-bold mb-2">Welcome back, {profile?.full_name}!</h1>
-        <p className="text-primary-100">Here’s what’s happening with your tickets today.</p>
+        <p className="text-primary-100">
+          Here's what's happening with {shouldFilterByBase ? `${userBase} base` : 'all'} tickets today.
+        </p>
       </div>
 
       {/* Stats Grid */}
@@ -111,14 +131,28 @@ const DashboardPage = () => {
 
       {/* Performance Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <MetricCard title="Avg Resolution Time" value={avgResolutionTime} icon={TrendingUp} trend="-12% from last month" trendUp={false} />
-        <MetricCard title="Customer Satisfaction" value={formattedSatisfaction} icon={Users} trend="+5% from last month" trendUp={true} />
+        <MetricCard
+          title="Avg Resolution Time"
+          value={avgResolutionTime}
+          icon={TrendingUp}
+          trend={resolutionTrend}
+          trendUp={resolutionTrendUp}
+        />
+        <MetricCard
+          title="Tickets Resolved This Month"
+          value={resolved}
+          icon={Users}
+          trend={`${resolved} resolved`}
+          trendUp={true}
+        />
       </div>
 
-      {/* Recent Tickets Table */}
+      {/* Recent Tickets */}
       <div className="card">
         <div className="card-header">
-          <h3 className="text-lg font-medium text-gray-900">Recent Tickets</h3>
+          <h3 className="text-lg font-medium text-gray-900">
+            Recent Tickets {shouldFilterByBase && `(${userBase} Base)`}
+          </h3>
         </div>
         <div className="card-body p-0">
           <div className="overflow-hidden">
@@ -158,7 +192,6 @@ const DashboardPage = () => {
   );
 };
 
-// StatCard component
 const StatCard = ({ title, value, icon: Icon, color, bgColor }) => (
   <div className="card">
     <div className="card-body">
@@ -177,7 +210,6 @@ const StatCard = ({ title, value, icon: Icon, color, bgColor }) => (
   </div>
 );
 
-// MetricCard component
 const MetricCard = ({ title, value, icon: Icon, trend, trendUp }) => (
   <div className="card">
     <div className="card-body">

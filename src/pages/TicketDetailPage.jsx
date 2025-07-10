@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { db } from "../lib/supabase.js";
+import { db, supabase } from "../lib/supabase.js";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft,
@@ -23,6 +23,17 @@ const TicketDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    priority: "",
+    base: "",
+    status: ""
+  });
+  const [editLoading, setEditLoading] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   // Utility functions
   const formatDate = (dateString) =>
@@ -74,6 +85,7 @@ const TicketDetailPage = () => {
         setHistory(historyData);
       } catch (err) {
         console.error("Error loading ticket:", err.message);
+        toast.error("Failed to load ticket details.");
       } finally {
         setLoading(false);
       }
@@ -82,111 +94,248 @@ const TicketDetailPage = () => {
   }, [id]);
 
   // Event handlers
-  const handleAddComment = async () => {
-  if (!newComment.trim()) return;
-  try {
-    const comment = {
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment: newComment,
-      comment_type: "comment",
-    };
-    await db.addTicketComment(comment);
-    setNewComment("");
-    const updatedHistory = await db.getTicketHistory(ticket.id);
-    setHistory(updatedHistory);
-    
-    // Send notification
+  const handleEdit = () => {
+    setEditForm({
+      title: ticket.title,
+      description: ticket.description,
+      priority: ticket.priority,
+      base: ticket.base,
+      status: ticket.status
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
     try {
-      await db.sendNotification('ticket_comment', ticket.id, newComment);
-    } catch (notificationError) {
-      console.error('Failed to send notification:', notificationError);
-      // Don't fail the whole operation if notification fails
+      setEditLoading(true);
+      
+      // Check what fields have changed
+      const changes = {};
+      const oldValues = {};
+      const newValues = {};
+      
+      if (editForm.title !== ticket.title) {
+        changes.title = editForm.title;
+        oldValues.title = ticket.title;
+        newValues.title = editForm.title;
+      }
+      if (editForm.description !== ticket.description) {
+        changes.description = editForm.description;
+        oldValues.description = ticket.description;
+        newValues.description = editForm.description;
+      }
+      if (editForm.priority !== ticket.priority) {
+        changes.priority = editForm.priority;
+        oldValues.priority = ticket.priority;
+        newValues.priority = editForm.priority;
+      }
+      if (editForm.base !== ticket.base) {
+        changes.base = editForm.base;
+        oldValues.base = ticket.base;
+        newValues.base = editForm.base;
+      }
+      if (editForm.status !== ticket.status) {
+        changes.status = editForm.status;
+        oldValues.status = ticket.status;
+        newValues.status = editForm.status;
+      }
+
+      // If no changes, just close modal
+      if (Object.keys(changes).length === 0) {
+        setShowEditModal(false);
+        return;
+      }
+
+      // Update ticket
+      await db.updateTicket(ticket.id, changes);
+
+      // Add comment for each change
+      for (const [field, newValue] of Object.entries(newValues)) {
+        await db.addTicketComment({
+          ticket_id: ticket.id,
+          user_id: profile.id,
+          comment_type: "comment", // Use valid comment type
+          comment: `${field.charAt(0).toUpperCase() + field.slice(1)} changed from "${oldValues[field]}" to "${newValue}"`,
+        });
+      }
+
+      // Send notification
+      try {
+        const changedFields = Object.keys(changes).join(', ');
+        await db.sendNotification('ticket_updated', ticket.id, `Ticket updated: ${changedFields} changed`);
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+      }
+
+      // Refresh data
+      const updatedTicket = await db.getTicket(ticket.id);
+      const updatedHistory = await db.getTicketHistory(ticket.id);
+      setTicket(updatedTicket);
+      setHistory(updatedHistory);
+      
+      setShowEditModal(false);
+      toast.success("Ticket updated successfully!");
+    } catch (error) {
+      console.error("Error updating ticket:", error.message);
+      toast.error("Failed to update ticket. Please try again.");
+    } finally {
+      setEditLoading(false);
     }
-    
-    toast.success("Comment added successfully!");
-  } catch (err) {
-    console.error("Error adding comment:", err.message);
-    toast.error("Failed to add comment.");
-  }
-};
+  };
+
+  const handleAddComment = async () => {
+    if (!newComment.trim()) return;
+    try {
+      const comment = {
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        comment: newComment,
+        comment_type: "comment",
+      };
+      await db.addTicketComment(comment);
+      setNewComment("");
+      const updatedHistory = await db.getTicketHistory(ticket.id);
+      setHistory(updatedHistory);
+      
+      // Send notification
+      try {
+        await db.sendNotification('ticket_comment', ticket.id, newComment);
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+        // Don't fail the whole operation if notification fails
+      }
+      
+      toast.success("Comment added successfully!");
+    } catch (err) {
+      console.error("Error adding comment:", err.message);
+      toast.error("Failed to add comment.");
+    }
+  };
 
   const handleStatusChange = async (newStatus) => {
-  if (newStatus === ticket.status) return;
-  try {
-    await db.updateTicket(ticket.id, { status: newStatus });
-    await db.addTicketComment({
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment: `Status changed from ${ticket.status} to ${newStatus}`,
-      comment_type: "status_change",
-      old_value: ticket.status,
-      new_value: newStatus,
-    });
-    
-    // Send notification
+    if (newStatus === ticket.status) return;
     try {
-      await db.sendNotification('ticket_updated', ticket.id, `Status changed from ${ticket.status} to ${newStatus}`);
-    } catch (notificationError) {
-      console.error('Failed to send notification:', notificationError);
+      await db.updateTicket(ticket.id, { status: newStatus });
+      await db.addTicketComment({
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        comment: `Status changed from ${ticket.status} to ${newStatus}`,
+        comment_type: "status_change",
+        old_value: ticket.status,
+        new_value: newStatus,
+      });
+      
+      // Send notification
+      try {
+        await db.sendNotification('ticket_updated', ticket.id, `Status changed from ${ticket.status} to ${newStatus}`);
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+      }
+      
+      const updatedTicket = await db.getTicket(ticket.id);
+      const updatedHistory = await db.getTicketHistory(ticket.id);
+      setTicket(updatedTicket);
+      setHistory(updatedHistory);
+      toast.success(`Status changed to ${newStatus}`);
+    } catch (err) {
+      console.error("Error changing status:", err.message);
+      toast.error("Failed to change status.");
     }
-    
-    const updatedTicket = await db.getTicket(ticket.id);
-    const updatedHistory = await db.getTicketHistory(ticket.id);
-    setTicket(updatedTicket);
-    setHistory(updatedHistory);
-    toast.success(`Status changed to ${newStatus}`);
-  } catch (err) {
-    console.error("Error changing status:", err.message);
-    toast.error("Failed to change status.");
-  }
-};
+  };
 
-  const handleAssignment = () => {
+  const handleAssignment = async () => {
     setShowAssignmentModal(true);
+    
+    // Fetch available users for assignment
+    try {
+      setUsersLoading(true);
+      
+      // Try using RPC function first, fallback to direct query
+      let data, error;
+      
+      try {
+        // Try using a database function that bypasses RLS
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_assignable_users');
+        if (rpcError) throw rpcError;
+        data = rpcData;
+        console.log('Users from RPC function:', data);
+      } catch (rpcError) {
+        console.log('RPC function not available, trying direct query...');
+        
+        // Fallback to direct query
+        const response = await supabase
+          .from('profiles')
+          .select('id, email, full_name, role, base')
+          .or('role.eq.Admin,role.eq.HIS')
+          .order('full_name', { nullsFirst: false });
+        
+        data = response.data;
+        error = response.error;
+        console.log('Users from direct query:', data);
+      }
+      
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
+      // Process users to ensure they have displayable names
+      const processedUsers = (data || []).map(user => ({
+        ...user,
+        display_name: user.full_name || user.email || 'Unknown User'
+      }));
+      
+      setAvailableUsers(processedUsers);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast.error('Failed to load available users. Please check permissions.');
+      setAvailableUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
   };
 
   const handleAssignToUser = async (selectedUserId, selectedUserName) => {
-  // Check if ticket is already assigned to selected user
-  if (ticket.assigned_to === selectedUserId) {
-    toast.error(`Ticket is already assigned to ${selectedUserName}!`);
-    return;
-  }
-
-  try {
-    await db.updateTicket(ticket.id, {
-      assigned_to: selectedUserId,
-    });
-
-    await db.addTicketComment({
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment_type: "assignment",
-      old_value: ticket?.assignee_profile?.full_name || "Unassigned",
-      new_value: selectedUserName,
-      comment: `Assigned to ${selectedUserName}`,
-    });
-
-    // Send notification to assigned user
-    try {
-      await db.sendNotification('ticket_assigned', ticket.id, `Ticket assigned to ${selectedUserName}`, selectedUserId);
-    } catch (notificationError) {
-      console.error('Failed to send notification:', notificationError);
+    // Check if ticket is already assigned to selected user
+    if (ticket.assigned_to === selectedUserId) {
+      toast.error(`Ticket is already assigned to ${selectedUserName}!`);
+      return;
     }
 
-    const updatedTicket = await db.getTicket(ticket.id);
-    setTicket(updatedTicket);
-    const updatedHistory = await db.getTicketHistory(ticket.id);
-    setHistory(updatedHistory);
+    try {
+      await db.updateTicket(ticket.id, {
+        assigned_to: selectedUserId,
+      });
 
-    toast.success(`Ticket assigned to ${selectedUserName}!`);
-  } catch (err) {
-    console.error("Assignment error:", err.message);
-    toast.error("Failed to assign ticket.");
-  } finally {
-    setShowAssignmentModal(false);
-  }
-};
+      await db.addTicketComment({
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        comment_type: "assignment",
+        old_value: ticket?.assignee_profile?.full_name || "Unassigned",
+        new_value: selectedUserName,
+        comment: `Assigned to ${selectedUserName}`,
+      });
+
+      // Send notification to assigned user
+      try {
+        await db.sendNotification('ticket_assigned', ticket.id, `Ticket assigned to ${selectedUserName}`, selectedUserId);
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+      }
+
+      const updatedTicket = await db.getTicket(ticket.id);
+      setTicket(updatedTicket);
+      const updatedHistory = await db.getTicketHistory(ticket.id);
+      setHistory(updatedHistory);
+
+      toast.success(`Ticket assigned to ${selectedUserName}!`);
+    } catch (err) {
+      console.error("Assignment error:", err.message);
+      toast.error("Failed to assign ticket.");
+    } finally {
+      setShowAssignmentModal(false);
+    }
+  };
 
   // Loading state
   if (loading || !ticket) {
@@ -218,7 +367,7 @@ const TicketDetailPage = () => {
       </div>
       {canManageTicket() && (
         <div className="flex space-x-2">
-          <button className="btn-secondary">
+          <button onClick={handleEdit} className="btn-secondary">
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </button>
@@ -412,33 +561,188 @@ const TicketDetailPage = () => {
     </div>
   );
 
+  const renderEditModal = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-semibold">Edit Ticket</h2>
+          <button
+            onClick={() => setShowEditModal(false)}
+            className="text-gray-400 hover:text-gray-600"
+            disabled={editLoading}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="space-y-6">
+          <div>
+            <label className="form-label">Title</label>
+            <input
+              type="text"
+              className="form-input"
+              value={editForm.title}
+              onChange={(e) => setEditForm({...editForm, title: e.target.value})}
+              disabled={editLoading}
+            />
+          </div>
+
+          <div>
+            <label className="form-label">Description</label>
+            <textarea
+              rows={4}
+              className="form-input"
+              value={editForm.description}
+              onChange={(e) => setEditForm({...editForm, description: e.target.value})}
+              disabled={editLoading}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="form-label">Priority</label>
+              <select
+                className="form-input"
+                value={editForm.priority}
+                onChange={(e) => setEditForm({...editForm, priority: e.target.value})}
+                disabled={editLoading}
+              >
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="form-label">Base</label>
+              <select
+                className="form-input"
+                value={editForm.base}
+                onChange={(e) => setEditForm({...editForm, base: e.target.value})}
+                disabled={editLoading}
+              >
+                <option value="South">South</option>
+                <option value="BML">BML</option>
+                <option value="North">North</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="form-label">Status</label>
+              <select
+                className="form-input"
+                value={editForm.status}
+                onChange={(e) => setEditForm({...editForm, status: e.target.value})}
+                disabled={editLoading}
+              >
+                <option value="Open">Open</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Closed">Closed</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end space-x-3 mt-8">
+          <button
+            onClick={() => setShowEditModal(false)}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded transition-colors"
+            disabled={editLoading}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveEdit}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+            disabled={editLoading}
+          >
+            {editLoading ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderAssignmentModal = () => (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
         <h2 className="text-xl font-semibold mb-4">Assign Ticket</h2>
         <p className="text-gray-600 mb-6">
           Choose who to assign this ticket to:
         </p>
-        <div className="space-y-3 mb-6">
-          <button
-            className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border"
-            onClick={() => handleAssignToUser(profile.id, profile.full_name)}
-          >
-            <div className="flex items-center justify-between">
-              <span>{profile.full_name} (Me)</span>
-              {ticket.assigned_to === profile.id && (
-                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                  Currently Assigned
-                </span>
-              )}
-            </div>
-          </button>
-          
-          {/* Add more users here if you have a users list */}
-          <div className="text-sm text-gray-500 text-center py-2">
-            More assignment options can be added here
+        
+        {usersLoading ? (
+          <div className="text-center py-4">
+            <div className="text-gray-500">Loading users...</div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-3 mb-6">
+            {/* Current user option */}
+            <button
+              className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border"
+              onClick={() => handleAssignToUser(profile.id, profile.full_name)}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium">{profile.full_name || profile.email} (Me)</span>
+                  <span className="text-sm text-gray-500 ml-2">({profile.role})</span>
+                </div>
+                {ticket.assigned_to === profile.id && (
+                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                    Currently Assigned
+                  </span>
+                )}
+              </div>
+            </button>
+            
+            {/* Other available users */}
+            {availableUsers
+              .filter(user => user.id !== profile.id)
+              .map((user) => (
+                <button
+                  key={user.id}
+                  className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border"
+                  onClick={() => handleAssignToUser(user.id, user.display_name)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-medium">{user.display_name}</span>
+                      <span className="text-sm text-gray-500 ml-2">({user.role})</span>
+                      {user.base && (
+                        <span className="text-xs text-gray-400 ml-1">- {user.base}</span>
+                      )}
+                    </div>
+                    {ticket.assigned_to === user.id && (
+                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                        Currently Assigned
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))
+            }
+            
+            {/* Unassign option */}
+            {ticket.assigned_to && (
+              <button
+                className="w-full px-4 py-2 text-left bg-red-50 hover:bg-red-100 rounded border border-red-200"
+                onClick={() => handleAssignToUser(null, "Unassigned")}
+              >
+                <span className="text-red-600 font-medium">Unassign Ticket</span>
+              </button>
+            )}
+            
+            {availableUsers.length === 0 && !usersLoading && (
+              <div className="text-sm text-gray-500 text-center py-4">
+                No other users available for assignment
+              </div>
+            )}
+          </div>
+        )}
         
         <div className="flex justify-end space-x-3">
           <button
@@ -471,6 +775,7 @@ const TicketDetailPage = () => {
         </div>
       </div>
 
+      {showEditModal && renderEditModal()}
       {showAssignmentModal && renderAssignmentModal()}
     </div>
   );
