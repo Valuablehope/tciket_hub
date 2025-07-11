@@ -285,19 +285,39 @@ export const db = {
   // Helper functions for notifications
   async getUserNotificationSettings(userId) {
     try {
+      console.log(`🔍 Fetching notification settings for user: "${userId}"`);
+      
+      // Try using RPC function first (bypasses RLS)
+      try {
+        const { data: rpcData, error: rpcError } = await supabase
+          .rpc('get_user_notification_settings', { target_user_id: userId });
+        
+        if (!rpcError && rpcData && rpcData.length > 0) {
+          console.log(`📊 RPC result for user ${userId}:`, rpcData[0]);
+          return rpcData[0];
+        }
+      } catch (rpcError) {
+        console.log('RPC function not available, trying direct query...');
+      }
+      
+      // Fallback to direct query
       const { data, error } = await supabase
         .from('user_settings')
-        .select('telegram_notifications, ticket_updates, assignment_notifications, telegram_chat_id, telegram_is_connected')
+        .select('telegram_notifications, telegram_chat_id, telegram_is_connected, telegram_username')
         .eq('user_id', userId)
-        .maybeSingle(); // Use maybeSingle() instead of single()
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error(`❌ Database error for user ${userId}:`, error);
+        return null;
+      }
       
-      // Return null if no settings found, or the data if found
+      console.log(`📊 Direct query result for user ${userId}:`, data);
+      
       return data;
     } catch (error) {
       console.error('Error getting notification settings:', error);
-      throw error;
+      return null;
     }
   },
 
@@ -545,7 +565,122 @@ export const db = {
     }
   },
 
-  // Send notification (Telegram only)
+  // Optimized notification function with targeted recipient logic
+  async sendOptimizedNotification(payload) {
+    try {
+      console.log('Processing optimized notification:', payload);
+      
+      const { 
+        type, 
+        ticket_id, 
+        message, 
+        actor_id, 
+        created_by, 
+        assigned_to,
+        ticket_title 
+      } = payload;
+
+      // Determine who should receive notifications
+      const recipients = new Set();
+      
+      // Add ticket creator (unless they're the actor)
+      if (created_by && created_by !== actor_id) {
+        recipients.add(created_by);
+      }
+      
+      // Add assigned user (unless they're the actor)
+      if (assigned_to && assigned_to !== actor_id) {
+        recipients.add(assigned_to);
+      }
+      
+      console.log('Calculated recipients:', Array.from(recipients));
+      
+      if (recipients.size === 0) {
+        console.log('No recipients calculated for notification');
+        return { success: true, recipients: 0, message: 'No valid recipients' };
+      }
+      
+      // Get notification settings for each recipient
+      const validChatIds = [];
+      const recipientDetails = [];
+      
+      for (const userId of recipients) {
+        try {
+          const settings = await this.getUserNotificationSettings(userId);
+          console.log(`Notification settings for user ${userId}:`, settings);
+          
+          if (settings?.telegram_is_connected && 
+              settings?.telegram_notifications && 
+              settings?.telegram_chat_id) {
+            validChatIds.push(settings.telegram_chat_id);
+            recipientDetails.push(`User ${userId} (${settings.telegram_chat_id})`);
+          } else {
+            console.log(`User ${userId} cannot receive notifications:`, {
+              telegram_is_connected: settings?.telegram_is_connected,
+              telegram_notifications: settings?.telegram_notifications,
+              has_chat_id: !!settings?.telegram_chat_id
+            });
+          }
+        } catch (error) {
+          console.error(`Error getting settings for user ${userId}:`, error);
+        }
+      }
+      
+      console.log(`Found ${validChatIds.length} valid recipients out of ${recipients.size} calculated recipients`);
+      
+      if (validChatIds.length === 0) {
+        console.log('No recipients found for Telegram notification: No users have Telegram properly configured');
+        return { 
+          success: true, 
+          recipients: 0, 
+          message: 'No users have Telegram properly configured',
+          details: recipientDetails
+        };
+      }
+      
+      console.log(`Sending Telegram notification to ${validChatIds.length} recipients:`, validChatIds);
+      
+      // Format the message with ticket context
+      const formattedMessage = `🎫 *Ticket #${ticket_id.slice(0, 6)}*: ${ticket_title}\n\n${message}`;
+      
+      // Call your existing Edge Function
+      const { data, error } = await supabase.functions.invoke(
+        'send-telegram-notification',
+        { 
+          body: { 
+            type, 
+            ticket_id, 
+            message: formattedMessage, 
+            chat_ids: validChatIds 
+          } 
+        }
+      );
+      
+      if (error) {
+        console.error('Edge function error:', error);
+        throw error;
+      }
+      
+      console.log('Telegram notification sent successfully:', data);
+      return { 
+        success: true, 
+        recipients: validChatIds.length, 
+        data,
+        details: recipientDetails
+      };
+      
+    } catch (error) {
+      console.error('Error sending optimized notification:', error);
+      // Don't throw the error, just return a failed result
+      return { 
+        success: false, 
+        error: error.message, 
+        recipients: 0 
+      };
+    }
+  },
+
+  // Send notification (Telegram only) - kept for backward compatibility
   async sendNotification(type, ticketId, message, targetUserId = null) {
     try {
       return await this.sendTelegramNotification(type, ticketId, message, targetUserId);

@@ -35,6 +35,62 @@ const TicketDetailPage = () => {
   const [availableUsers, setAvailableUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
 
+  // Notification helper functions (same as TicketsPage)
+  const buildNotificationPayload = (ticket, type, message, additionalData = {}) => ({
+    type,
+    ticket_id: ticket.id,
+    ticket_title: ticket.title,
+    ticket_base: ticket.base,
+    message,
+    actor_name: profile?.full_name || profile?.email || 'Unknown User',
+    actor_role: profile?.role,
+    actor_id: profile?.id,
+    created_by: ticket.creator_profile?.id || ticket.created_by,
+    assigned_to: ticket.assigned_to,
+    // Debug info
+    debug_info: {
+      should_notify_creator: (ticket.creator_profile?.id || ticket.created_by) !== profile?.id,
+      should_notify_assignee: ticket.assigned_to !== profile?.id,
+      creator_id: ticket.creator_profile?.id || ticket.created_by,
+      assignee_id: ticket.assigned_to,
+      actor_id: profile?.id
+    },
+    ...additionalData
+  });
+
+  const sendOptimizedNotification = async (ticket, type, message, additionalData = {}) => {
+    try {
+      const payload = buildNotificationPayload(ticket, type, message, additionalData);
+      
+      console.log('Attempting to send notification:', {
+        type,
+        ticket_id: ticket.id,
+        message,
+        created_by: ticket.creator_profile?.id || ticket.created_by,
+        assigned_to: ticket.assigned_to,
+        actor: profile?.full_name || profile?.email
+      });
+      
+      // Use optimized notification if available
+      if (typeof db.sendOptimizedNotification === 'function') {
+        console.log('Using optimized notification system...');
+        const result = await db.sendOptimizedNotification(payload);
+        console.log('Optimized notification result:', result);
+        return result;
+      } else {
+        console.log('Using fallback notification system...');
+        // Fallback to the regular notification system
+        const result = await db.sendNotification(type, ticket.id, message);
+        console.log('Fallback notification sent for ticket:', ticket.id);
+        return result;
+      }
+    } catch (error) {
+      console.error('Failed to send notification:', error);
+      // Don't throw error to avoid breaking the main operation
+      return { success: false, error: error.message };
+    }
+  };
+
   // Utility functions
   const formatDate = (dateString) =>
     new Date(dateString).toLocaleString("en-US", {
@@ -111,33 +167,47 @@ const TicketDetailPage = () => {
       
       // Check what fields have changed
       const changes = {};
-      const oldValues = {};
-      const newValues = {};
+      const changeDetails = [];
       
       if (editForm.title !== ticket.title) {
         changes.title = editForm.title;
-        oldValues.title = ticket.title;
-        newValues.title = editForm.title;
+        changeDetails.push({
+          field: 'title',
+          old_value: ticket.title,
+          new_value: editForm.title
+        });
       }
       if (editForm.description !== ticket.description) {
         changes.description = editForm.description;
-        oldValues.description = ticket.description;
-        newValues.description = editForm.description;
+        changeDetails.push({
+          field: 'description',
+          old_value: ticket.description,
+          new_value: editForm.description
+        });
       }
       if (editForm.priority !== ticket.priority) {
         changes.priority = editForm.priority;
-        oldValues.priority = ticket.priority;
-        newValues.priority = editForm.priority;
+        changeDetails.push({
+          field: 'priority',
+          old_value: ticket.priority,
+          new_value: editForm.priority
+        });
       }
       if (editForm.base !== ticket.base) {
         changes.base = editForm.base;
-        oldValues.base = ticket.base;
-        newValues.base = editForm.base;
+        changeDetails.push({
+          field: 'base',
+          old_value: ticket.base,
+          new_value: editForm.base
+        });
       }
       if (editForm.status !== ticket.status) {
         changes.status = editForm.status;
-        oldValues.status = ticket.status;
-        newValues.status = editForm.status;
+        changeDetails.push({
+          field: 'status',
+          old_value: ticket.status,
+          new_value: editForm.status
+        });
       }
 
       // If no changes, just close modal
@@ -150,22 +220,27 @@ const TicketDetailPage = () => {
       await db.updateTicket(ticket.id, changes);
 
       // Add comment for each change
-      for (const [field, newValue] of Object.entries(newValues)) {
+      for (const change of changeDetails) {
         await db.addTicketComment({
           ticket_id: ticket.id,
           user_id: profile.id,
-          comment_type: "comment", // Use valid comment type
-          comment: `${field.charAt(0).toUpperCase() + field.slice(1)} changed from "${oldValues[field]}" to "${newValue}"`,
+          comment_type: "comment",
+          comment: `${change.field.charAt(0).toUpperCase() + change.field.slice(1)} changed from "${change.old_value}" to "${change.new_value}"`,
         });
       }
 
-      // Send notification
-      try {
-        const changedFields = Object.keys(changes).join(', ');
-        await db.sendNotification('ticket_updated', ticket.id, `Ticket updated: ${changedFields} changed`);
-      } catch (notificationError) {
-        console.error('Failed to send notification:', notificationError);
-      }
+      // Send optimized notification for all changes (same as TicketsPage)
+      const changedFields = changeDetails.map(c => c.field).join(', ');
+      await sendOptimizedNotification(
+        ticket,
+        'ticket_updated',
+        `Ticket updated: ${changedFields} changed`,
+        {
+          changes: changeDetails,
+          old_base: ticket.base,
+          new_base: editForm.base
+        }
+      );
 
       // Refresh data
       const updatedTicket = await db.getTicket(ticket.id);
@@ -194,16 +269,16 @@ const TicketDetailPage = () => {
       };
       await db.addTicketComment(comment);
       setNewComment("");
+      
+      // Send optimized notification
+      await sendOptimizedNotification(
+        ticket,
+        'ticket_comment',
+        `New comment: ${newComment.substring(0, 100)}${newComment.length > 100 ? '...' : ''}`
+      );
+      
       const updatedHistory = await db.getTicketHistory(ticket.id);
       setHistory(updatedHistory);
-      
-      // Send notification
-      try {
-        await db.sendNotification('ticket_comment', ticket.id, newComment);
-      } catch (notificationError) {
-        console.error('Failed to send notification:', notificationError);
-        // Don't fail the whole operation if notification fails
-      }
       
       toast.success("Comment added successfully!");
     } catch (err) {
@@ -225,12 +300,16 @@ const TicketDetailPage = () => {
         new_value: newStatus,
       });
       
-      // Send notification
-      try {
-        await db.sendNotification('ticket_updated', ticket.id, `Status changed from ${ticket.status} to ${newStatus}`);
-      } catch (notificationError) {
-        console.error('Failed to send notification:', notificationError);
-      }
+      // Send optimized notification
+      await sendOptimizedNotification(
+        ticket,
+        'ticket_status_change',
+        `Status changed from ${ticket.status} to ${newStatus}`,
+        {
+          old_status: ticket.status,
+          new_status: newStatus
+        }
+      );
       
       const updatedTicket = await db.getTicket(ticket.id);
       const updatedHistory = await db.getTicketHistory(ticket.id);
@@ -303,6 +382,8 @@ const TicketDetailPage = () => {
     }
 
     try {
+      const oldAssigneeName = ticket?.assignee_profile?.full_name || "Unassigned";
+      
       await db.updateTicket(ticket.id, {
         assigned_to: selectedUserId,
       });
@@ -311,17 +392,23 @@ const TicketDetailPage = () => {
         ticket_id: ticket.id,
         user_id: profile.id,
         comment_type: "assignment",
-        old_value: ticket?.assignee_profile?.full_name || "Unassigned",
+        old_value: oldAssigneeName,
         new_value: selectedUserName,
         comment: `Assigned to ${selectedUserName}`,
       });
 
-      // Send notification to assigned user
-      try {
-        await db.sendNotification('ticket_assigned', ticket.id, `Ticket assigned to ${selectedUserName}`, selectedUserId);
-      } catch (notificationError) {
-        console.error('Failed to send notification:', notificationError);
-      }
+      // Send optimized notification (same as TicketsPage)
+      await sendOptimizedNotification(
+        ticket,
+        'ticket_assignment',
+        `Ticket assigned to ${selectedUserName}`,
+        {
+          old_assignee: ticket.assigned_to,
+          new_assignee: selectedUserId,
+          old_assignee_name: oldAssigneeName,
+          new_assignee_name: selectedUserName
+        }
+      );
 
       const updatedTicket = await db.getTicket(ticket.id);
       setTicket(updatedTicket);
