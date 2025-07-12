@@ -127,7 +127,8 @@ const TicketsPage = () => {
   const filteredTickets = tickets.filter(
     (ticket) =>
       ticket.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ticket.description.toLowerCase().includes(searchTerm.toLowerCase())
+      ticket.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (ticket.ticket_number && ticket.ticket_number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const getStatusBadge = (status) =>
@@ -173,39 +174,59 @@ const TicketsPage = () => {
   };
 
   const handleAssign = async (ticket) => {
-    setSelectedTicket(ticket);
-    setShowAssignmentModal(true);
-    setOpenDropdownId(null);
-    
-    // Fetch available users for assignment using RPC function
-    try {
-      setUsersLoading(true);
-      
-      // Use the database function to get assignable users
-      const { data, error } = await supabase.rpc('get_assignable_users');
-      
-      if (error) {
-        console.error('RPC function error:', error);
-        throw error;
-      }
-      
-      console.log('Users from get_assignable_users function:', data);
-      
-      // Process users to ensure they have displayable names
-      const processedUsers = (data || []).map(user => ({
-        ...user,
-        display_name: user.full_name || user.email || 'Unknown User'
-      }));
-      
-      setAvailableUsers(processedUsers);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      toast.error('Failed to load available users. Please check permissions.');
-      setAvailableUsers([]);
-    } finally {
-      setUsersLoading(false);
+  // Only Admin and HIS can assign tickets
+  if (!profile?.role || !['Admin', 'HIS'].includes(profile.role)) {
+    toast.error('Access denied: Only Admin and HIS users can assign tickets.')
+    return
+  }
+
+  // Add null check for ticket
+  if (!ticket) {
+    toast.error('Ticket data not available. Please try again.')
+    return
+  }
+
+  setSelectedTicket(ticket);
+  setShowAssignmentModal(true);
+  setOpenDropdownId(null);
+
+  try {
+    setUsersLoading(true);
+    let data, error;
+
+    if (profile?.role === "Admin") {
+      // Admin can assign across all bases
+      const result = await supabase.rpc('get_admin_assignable_users_secure');
+      data = result.data;
+      error = result.error;
+    } else if (profile?.role === "HIS") {
+      // HIS can assign within their base - use the secure function
+      const result = await supabase.rpc('get_assignable_users_secure', {
+        base_id: ticket.base_id
+      });
+      data = result.data;
+      error = result.error;
     }
-  };
+
+    if (error) {
+      console.error('RPC function error:', error);
+      throw error;
+    }
+
+    const processedUsers = (data || []).map(user => ({
+      ...user,
+      display_name: user.full_name || user.email || 'Unknown User'
+    }));
+
+    setAvailableUsers(processedUsers);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    toast.error('Failed to load available users.');
+    setAvailableUsers([]);
+  } finally {
+    setUsersLoading(false);
+  }
+};
 
   const handleDelete = (ticket) => {
     setSelectedTicket(ticket);
@@ -214,63 +235,73 @@ const TicketsPage = () => {
   };
 
   const handleAssignToUser = async (selectedUserId, selectedUserName) => {
-    if (!selectedTicket) return;
+  if (!selectedTicket) return;
+  
+  // Check if ticket is already assigned to selected user
+  if (selectedTicket.assigned_to === selectedUserId) {
+    toast.error(`Ticket is already assigned to ${selectedUserName}!`);
+    return;
+  }
+
+  try {
+    setActionLoading(true);
     
-    // Check if ticket is already assigned to selected user
-    if (selectedTicket.assigned_to === selectedUserId) {
-      toast.error(`Ticket is already assigned to ${selectedUserName}!`);
-      return;
-    }
+    // Get current assignee name safely
+    const oldAssigneeName = selectedTicket?.assignee_profile?.full_name || 
+                           selectedTicket?.assignee_profile?.email || 
+                           "Unassigned";
+    
+    // Update ticket assignment - use ticket.id (should be UUID)
+    await db.updateTicket(selectedTicket.id, {
+      assigned_to: selectedUserId,
+    });
 
-    try {
-      setActionLoading(true);
-      const oldAssigneeName = selectedTicket?.assignee_profile?.full_name || "Unassigned";
-      
-      await db.updateTicket(selectedTicket.id, {
-        assigned_to: selectedUserId,
-      });
+    // Add comment for the assignment change - use ticket.id (UUID)
+    await db.addTicketComment({
+      ticket_id: selectedTicket.id,
+      user_id: profile.id,
+      comment_type: "assignment",
+      old_value: oldAssigneeName,
+      new_value: selectedUserName || "Unassigned",
+      comment: selectedUserId ? `Assigned to ${selectedUserName}` : "Unassigned",
+    });
 
-      await db.addTicketComment({
-        ticket_id: selectedTicket.id,
-        user_id: profile.id,
-        comment_type: "assignment",
-        old_value: oldAssigneeName,
-        new_value: selectedUserName,
-        comment: `Assigned to ${selectedUserName}`,
-      });
+    // Send optimized notification
+    await sendOptimizedNotification(
+      selectedTicket,
+      'ticket_assignment',
+      selectedUserId ? `Ticket assigned to ${selectedUserName}` : 'Ticket unassigned',
+      {
+        old_assignee: selectedTicket.assigned_to,
+        new_assignee: selectedUserId,
+        old_assignee_name: oldAssigneeName,
+        new_assignee_name: selectedUserName || "Unassigned"
+      }
+    );
 
-      // Send optimized notification (same as TicketDetailPage)
-      await sendOptimizedNotification(
-        selectedTicket,
-        'ticket_assignment',
-        `Ticket assigned to ${selectedUserName}`,
-        {
-          old_assignee: selectedTicket.assigned_to,
-          new_assignee: selectedUserId,
-          old_assignee_name: oldAssigneeName,
-          new_assignee_name: selectedUserName
-        }
-      );
-
-      // Update local state
-      setTickets(prevTickets =>
-        prevTickets.map(ticket =>
-          ticket.id === selectedTicket.id
-            ? { ...ticket, assigned_to: selectedUserId, assignee_profile: { full_name: selectedUserName } }
-            : ticket
-        )
-      );
-      
-      setShowAssignmentModal(false);
-      setSelectedTicket(null);
-      toast.success(`Ticket assigned to ${selectedUserName}!`);
-    } catch (error) {
-      console.error("Failed to assign ticket:", error.message);
-      toast.error("Failed to assign ticket. Please try again.");
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    // Update local state
+    setTickets(prevTickets =>
+      prevTickets.map(ticket =>
+        ticket.id === selectedTicket.id
+          ? { 
+              ...ticket, 
+              assigned_to: selectedUserId, 
+              assignee_profile: selectedUserId ? { full_name: selectedUserName } : null 
+            }
+          : ticket
+      )
+    );
+    
+    setShowAssignmentModal(false);
+    setSelectedTicket(null);
+    toast.success(selectedUserId ? `Ticket assigned to ${selectedUserName}!` : 'Ticket unassigned!');
+  } catch (error) {
+    console.error("Failed to assign ticket:", error);
+    toast.error("Failed to assign ticket. Please try again.");
+  } finally {
+    setActionLoading(false);
+  }
+};
 
   const handleDeleteConfirm = async () => {
     if (!selectedTicket) return;
@@ -513,23 +544,25 @@ const TicketsPage = () => {
   );
 
   const renderAssignmentModal = () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">Assign Ticket</h2>
-        <p className="text-gray-600 mb-6">
-          Choose who to assign this ticket to:
-        </p>
-        
-        {usersLoading ? (
-          <div className="text-center py-4">
-            <div className="text-gray-500">Loading users...</div>
-          </div>
-        ) : (
-          <div className="space-y-3 mb-6">
-            {/* Current user option */}
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
+      <h2 className="text-xl font-semibold mb-4">Assign Ticket</h2>
+      <p className="text-gray-600 mb-6">
+        Choose who to assign this ticket to:
+      </p>
+      
+      {usersLoading ? (
+        <div className="text-center py-4">
+          <div className="loading-spinner h-6 w-6 mx-auto mb-2"></div>
+          <div className="text-gray-500">Loading users...</div>
+        </div>
+      ) : (
+        <div className="space-y-3 mb-6">
+          {/* Current user option - only show if user can be assigned tickets (Admin/HIS) */}
+          {['Admin', 'HIS'].includes(profile?.role) && (
             <button
-              className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border"
-              onClick={() => handleAssignToUser(profile.id, profile.full_name)}
+              className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border transition-colors"
+              onClick={() => handleAssignToUser(profile.id, profile.full_name || profile.email)}
               disabled={actionLoading}
             >
               <div className="flex items-center justify-between">
@@ -544,114 +577,67 @@ const TicketsPage = () => {
                 )}
               </div>
             </button>
-            
-            {/* Other available users */}
-            {availableUsers
-              .filter(user => user.id !== profile.id)
-              .map((user) => (
-                <button
-                  key={user.id}
-                  className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border"
-                  onClick={() => handleAssignToUser(user.id, user.display_name)}
-                  disabled={actionLoading}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-medium">{user.display_name}</span>
-                      <span className="text-sm text-gray-500 ml-2">({user.role})</span>
-                      {user.base && (
-                        <span className="text-xs text-gray-400 ml-1">- {user.base}</span>
-                      )}
-                    </div>
-                    {selectedTicket?.assigned_to === user.id && (
-                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                        Currently Assigned
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))
-            }
-            
-            {/* Unassign option */}
-            {selectedTicket?.assigned_to && (
+          )}
+          
+          {/* Other available users - only HIS and Admin users */}
+          {availableUsers
+            .filter(user => user.id !== profile.id)
+            .map((user) => (
               <button
-                className="w-full px-4 py-2 text-left bg-red-50 hover:bg-red-100 rounded border border-red-200"
-                onClick={() => handleAssignToUser(null, "Unassigned")}
+                key={user.id}
+                className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border transition-colors"
+                onClick={() => handleAssignToUser(user.id, user.display_name)}
                 disabled={actionLoading}
               >
-                <span className="text-red-600 font-medium">Unassign Ticket</span>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium">{user.display_name}</span>
+                    <span className="text-sm text-gray-500 ml-2">({user.role})</span>
+                    {user.base && (
+                      <span className="text-xs text-gray-400 ml-1">- {user.base}</span>
+                    )}
+                  </div>
+                  {selectedTicket?.assigned_to === user.id && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                      Currently Assigned
+                    </span>
+                  )}
+                </div>
               </button>
-            )}
-            
-            {availableUsers.length === 0 && !usersLoading && (
-              <div className="text-sm text-gray-500 text-center py-4">
-                No other users available for assignment
-              </div>
-            )}
-          </div>
-        )}
-        
-        <div className="flex justify-end space-x-3">
-          <button
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
-            onClick={closeModals}
-            disabled={actionLoading}
-          >
-            Cancel
-          </button>
+            ))
+          }
+          
+          {/* Unassign option */}
+          {selectedTicket?.assigned_to && (
+            <button
+              className="w-full px-4 py-2 text-left bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
+              onClick={() => handleAssignToUser(null, "Unassigned")}
+              disabled={actionLoading}
+            >
+              <span className="text-red-600 font-medium">Unassign Ticket</span>
+            </button>
+          )}
+          
+          {availableUsers.length === 0 && !usersLoading && (
+            <div className="text-sm text-gray-500 text-center py-4">
+              No other users available for assignment
+            </div>
+          )}
         </div>
+      )}
+      
+      <div className="flex justify-end space-x-3">
+        <button
+          className="btn-secondary"
+          onClick={closeModals}
+          disabled={actionLoading}
+        >
+          Cancel
+        </button>
       </div>
     </div>
-  );
-
-  const renderDeleteModal = () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center">
-            <AlertTriangle className="h-6 w-6 text-red-500 mr-2" />
-            <h2 className="text-xl font-semibold">Delete Ticket</h2>
-          </div>
-          <button
-            onClick={closeModals}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        
-        <p className="text-gray-600 mb-6">
-          Are you sure you want to delete ticket #{selectedTicket?.id.slice(0, 6)}? 
-          This action cannot be undone.
-        </p>
-        
-        <div className="bg-red-50 border border-red-200 rounded p-3 mb-6">
-          <p className="text-sm text-red-800">
-            <strong>Warning:</strong> This will permanently delete the ticket and all its comments.
-          </p>
-        </div>
-        
-        <div className="flex justify-end space-x-3">
-          <button
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded transition-colors"
-            onClick={closeModals}
-            disabled={actionLoading}
-          >
-            Cancel
-          </button>
-          <button
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
-            onClick={handleDeleteConfirm}
-            disabled={actionLoading}
-          >
-            {actionLoading ? "Deleting..." : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
+  </div>
+);
   const canEditTicket = (ticket) => {
     return (
       profile?.role === "Admin" ||
@@ -668,8 +654,8 @@ const TicketsPage = () => {
   };
 
   const canAssignTicket = () => {
-    return profile?.role === "Admin" || profile?.role === "HIS";
-  };
+  return profile?.role === "Admin" || profile?.role === "HIS";
+};
 
   return (
     <div className="space-y-6">
@@ -765,7 +751,7 @@ const TicketsPage = () => {
                       <tr key={ticket.id} className="hover:bg-gray-50">
                         <td className="table-cell">
                           <div className="text-sm font-medium text-gray-900">
-                            #{ticket.id.slice(0, 6)} - {ticket.title}
+                            #{ticket.ticket_number} - {ticket.title}
                           </div>
                           <div className="text-sm text-gray-500 truncate max-w-xs">
                             {ticket.description}

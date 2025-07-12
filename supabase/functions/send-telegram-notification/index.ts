@@ -68,7 +68,8 @@ serve(async (req) => {
       .select(`
         *,
         creator_profile:profiles!tickets_created_by_fkey(full_name),
-        assignee_profile:profiles!tickets_assigned_to_fkey(full_name)
+        assignee_profile:profiles!tickets_assigned_to_fkey(full_name),
+        bases!tickets_base_id_fkey(name)
       `)
       .eq('id', ticket_id)
       .single();
@@ -81,8 +82,12 @@ serve(async (req) => {
       });
     }
 
-    const ticketUrl = `${frontendUrl}/tickets/${ticket.id}`;
-    const base = ticket.base || 'N/A';
+    // Use ticket_number for URL and display, fallback to id if ticket_number doesn't exist
+    const ticketIdentifier = ticket.ticket_number || ticket.id;
+    const ticketUrl = `${frontendUrl}/tickets/${ticketIdentifier}`;
+    
+    // Get base name from the joined bases table
+    const base = ticket.bases?.name || ticket.base || 'N/A';
     const priority = ticket.priority || 'N/A';
     const status = ticket.status || 'N/A';
     const createdBy = ticket.creator_profile?.full_name || 'Unknown';
@@ -90,8 +95,12 @@ serve(async (req) => {
     const title = ticket.title || 'Untitled';
     const _description = ticket.description ? ticket.description.substring(0, 300) + (ticket.description.length > 300 ? '...' : '') : 'No description provided.';
 
+    // Use ticket_number for display in the notification
+    const displayTicketNumber = ticket.ticket_number || `#${ticket.id.slice(0, 8)}`;
+
     let notificationText = `🔔 *Ticket Update Notification*\n\n` +
-                           `🎫 *Title:* ${title}\n` +
+                           `🎫 *Ticket:* ${displayTicketNumber}\n` +
+                           `📋 *Title:* ${title}\n` +
                            `📌 *Status:* ${status}\n` +
                            `📍 *Base:* ${base}\n` +
                            `🔥 *Priority:* ${priority}\n` +

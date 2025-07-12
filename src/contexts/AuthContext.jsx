@@ -260,14 +260,28 @@ export const AuthProvider = ({ children }) => {
 
   const signUp = async (email, password, fullName, base) => {
     try {
-      console.log('📝 Signing up user:', email)
+      console.log('📝 Signing up user:', email, { fullName, base })
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName, base } }
+        options: { 
+          data: { 
+            fullName: fullName,    // Changed from full_name to fullName (camelCase)
+            bases: [base]          // Changed from base to bases (array)
+          } 
+        }
       })
-      if (error) throw error
-      console.log('✅ User signed up successfully')
+      
+      if (error) {
+        console.error('❌ Detailed signup error:', {
+          message: error.message,
+          status: error.status,
+          details: error.details
+        })
+        throw error
+      }
+      
+      console.log('✅ User signed up successfully', data)
       return data
     } catch (error) {
       console.error('❌ Sign up error:', error)

@@ -1,14 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useAuth } from '../contexts/AuthContext'
 import { Eye, EyeOff, UserPlus, CheckCircle, Sparkles } from 'lucide-react'
+import { db } from '../lib/supabase.js'
 
 const SignupPage = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [bases, setBases] = useState([])
   const { signUp } = useAuth()
   const navigate = useNavigate()
 
@@ -21,6 +23,22 @@ const SignupPage = () => {
   } = useForm()
 
   const password = watch('password')
+
+  useEffect(() => {
+    // Fetch bases from the database
+    const fetchBases = async () => {
+      try {
+        const result = await db.getAllBases()
+        // Support both { data, error } and direct array return
+        let basesArray = Array.isArray(result) ? result : result?.data
+        if (!Array.isArray(basesArray)) basesArray = []
+        setBases(basesArray)
+      } catch (err) {
+        setBases([])
+      }
+    }
+    fetchBases()
+  }, [])
 
   const onSubmit = async (data) => {
     try {
@@ -124,9 +142,9 @@ const SignupPage = () => {
                 {...register('base', { required: 'Please select a base' })}
               >
                 <option value="" disabled>-- Select your base --</option>
-                <option value="South">South</option>
-                <option value="BML">BML</option>
-                <option value="North">North</option>
+                {(bases || []).map(base => (
+                  <option key={base.id} value={base.name}>{base.name}</option>
+                ))}
               </select>
               {errors.base && (
                 <p className="text-red-400 text-xs mt-1">{errors.base.message}</p>
