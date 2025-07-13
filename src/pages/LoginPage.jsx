@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useAuth } from '../contexts/AuthContext'
 import { Eye, EyeOff, LogIn, Zap } from 'lucide-react'
+import logo from '../assets/logo.png';
 
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false)
@@ -47,12 +48,17 @@ const LoginPage = () => {
         <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-10 shadow-2xl border border-white/60">
           {/* Header */}
           <div className="text-center mb-10">
-            <div className="flex items-center justify-center w-16 h-16 bg-gradient-to-br from-gray-200 to-gray-100 rounded-full mb-5 shadow-lg mx-auto">
-              <Zap className="w-8 h-8 text-yellow-400" />
-            </div>
-            <h1 className="text-3xl font-extrabold text-gray-800 mb-2">Welcome Back</h1>
-            <p className="text-gray-500">Sign in to continue to Ticket Hub</p>
-          </div>
+  <div className="text-center mb-10">
+  <img
+    src={logo}
+    alt="Logo"
+    className="w-48 h-48 mx-auto mb-2 object-contain"
+  />
+  <h1 className="text-3xl font-extrabold text-gray-800 mb-2">Welcome Back</h1>
+  <p className="text-gray-500">Sign in to continue to Ticket Hub</p>
+</div>
+</div>
+
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             {/* Email */}
             <div>

@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useAuth } from '../contexts/AuthContext'
 import { Eye, EyeOff, UserPlus, CheckCircle, Sparkles } from 'lucide-react'
 import { db } from '../lib/supabase.js'
+import logo from '../assets/logo.png';
 
 const SignupPage = () => {
   const [showPassword, setShowPassword] = useState(false)
@@ -94,11 +95,15 @@ const SignupPage = () => {
         <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-10 shadow-2xl border border-white/60">
           {/* Header */}
           <div className="text-center mb-10">
-            <div className="flex items-center justify-center w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-100 rounded-full mb-5 shadow-lg mx-auto">
-              <Sparkles className="w-10 h-10 text-yellow-400" />
-            </div>
+            <div className="text-center mb-10">
+            <img
+              src={logo}
+              alt="Logo"
+              className="w-48 h-48 mx-auto mb-2 object-contain"
+            />
             <h1 className="text-3xl font-extrabold text-gray-800 mb-2">Create your account</h1>
             <p className="text-gray-500">Join Ticket Hub to get started</p>
+          </div>
           </div>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             {/* Full Name */}

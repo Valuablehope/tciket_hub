@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import logo from '../assets/logo.png';
 import {
   Home,
   Ticket,
@@ -146,10 +147,18 @@ const SidebarContent = ({ navigation, isCurrentPage, profile }) => {
     <div className="flex-1 flex flex-col min-h-0 bg-white border-r border-gray-200">
       <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
         <div className="flex items-center flex-shrink-0 px-4">
-          <div className="h-8 w-8 bg-primary-600 rounded-lg flex items-center justify-center">
-            <Ticket className="h-5 w-5 text-white" />
-          </div>
-          <span className="ml-2 text-xl font-semibold text-gray-900">TicketHub</span>
+          <div className="flex flex-col items-center px-6 pt-6 pb-4 bg-white border-b border-gray-200 shadow-sm">
+  <div className="bg-white p-2 rounded-md shadow-md">
+    <img
+      src={logo}
+      alt="TicketHub Logo"
+      className="h-12 w-auto object-contain"
+    />
+  </div>
+  <span className="mt-3 text-lg font-bold text-gray-800 tracking-wide">
+    TicketHub
+  </span>
+</div>
         </div>
         <nav className="mt-8 flex-1 px-2 space-y-1">
           {navigation.map((item) => {
