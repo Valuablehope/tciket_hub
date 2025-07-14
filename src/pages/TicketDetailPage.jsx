@@ -11,24 +11,28 @@ import {
   Edit,
   UserCheck,
   AlertCircle,
-  X
+  X,
+  Paperclip,
+  Download,
+  Eye,
+  Image as ImageIcon,
+  FileText,
+  ExternalLink
 } from "lucide-react"
 
 const TicketDetailPage = () => {
-  // FIXED: Renamed parameter to reflect it's actually a UUID, not ticket_number
   const { id: ticketId } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
 
-  // ALL HOOKS MUST BE DECLARED FIRST - NO EARLY RETURNS BEFORE THIS POINT
-  // State management
+  // Core state
   const [ticket, setTicket] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  
+  // Form state
   const [newComment, setNewComment] = useState("")
-  const [showAssignmentModal, setShowAssignmentModal] = useState(false)
-  const [showEditModal, setShowEditModal] = useState(false)
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -36,12 +40,24 @@ const TicketDetailPage = () => {
     base_id: "",
     status: ""
   })
+  
+  // Modal state
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showImageModal, setShowImageModal] = useState(false)
+  const [selectedImage, setSelectedImage] = useState(null)
+  
+  // Loading states
   const [editLoading, setEditLoading] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  
+  // Data state
   const [availableUsers, setAvailableUsers] = useState([])
   const [availableBases, setAvailableBases] = useState([])
-  const [usersLoading, setUsersLoading] = useState(false)
+  const [attachments, setAttachments] = useState([])
 
-  // Memoized helper functions
+  // Utility functions
   const formatDate = useCallback((dateString) => {
     if (!dateString) return 'Unknown'
     try {
@@ -77,13 +93,72 @@ const TicketDetailPage = () => {
     return styles[priority] || "badge-secondary"
   }, [])
 
-  // Memoized derived data with null safety
+  // File type detection
+  const getFileType = useCallback((fileName) => {
+    const extension = fileName.split('.').pop()?.toLowerCase()
+    const imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp']
+    const documentTypes = ['pdf', 'doc', 'docx', 'txt', 'rtf']
+    
+    if (imageTypes.includes(extension)) return 'image'
+    if (documentTypes.includes(extension)) return 'document'
+    return 'file'
+  }, [])
+
+  // Attachment functions
+  const loadAttachments = useCallback(async () => {
+    if (!ticket?.id) return
+    
+    try {
+      setAttachmentsLoading(true)
+      const attachmentList = await db.listTicketAttachments(ticket.id)
+      
+      const attachmentsWithUrls = attachmentList.map(file => {
+        const fullPath = `${ticket.id}/${file.name}`
+        const urlData = db.getTicketAttachmentUrl(fullPath)
+        return {
+          ...file,
+          fullPath,
+          url: urlData.publicUrl,
+          type: getFileType(file.name)
+        }
+      })
+      
+      setAttachments(attachmentsWithUrls)
+    } catch (error) {
+      console.error('Error loading attachments:', error)
+      toast.error('Failed to load attachments')
+    } finally {
+      setAttachmentsLoading(false)
+    }
+  }, [ticket?.id, getFileType])
+
+  const handleImageClick = useCallback((attachment) => {
+    if (attachment.type === 'image') {
+      setSelectedImage(attachment)
+      setShowImageModal(true)
+    }
+  }, [])
+
+  const handleDownload = useCallback(async (attachment) => {
+    try {
+      const link = document.createElement('a')
+      link.href = attachment.url
+      link.download = attachment.name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (error) {
+      console.error('Error downloading file:', error)
+      toast.error('Failed to download file')
+    }
+  }, [])
+
+  // Computed values
   const ticketDisplayData = useMemo(() => {
     if (!ticket) return null
 
     console.log('🔍 PROCESSING TICKET DATA:', ticket)
 
-    // Safe access helpers
     const getTicketId = () => ticket?.id || 'unknown'
     const getShortId = () => {
       const ticketId = getTicketId()
@@ -160,37 +235,15 @@ const TicketDetailPage = () => {
     )
   }, [profile, ticket])
 
-  // Optimized notification function with null safety
-  const sendOptimizedNotification = useCallback(async (ticket, type, message, additionalData = {}) => {
-    if (!profile?.id || !ticket?.id) {
-      console.warn('Cannot send notification: missing profile or ticket data')
-      return { success: false, error: 'Missing required data' }
-    }
+  const screenshots = useMemo(() => {
+    return attachments.filter(attachment => attachment.type === 'image')
+  }, [attachments])
 
-    try {
-      const payload = {
-        type,
-        ticket_id: ticket.id,
-        ticket_title: ticket.title || 'Untitled',
-        message,
-        actor_id: profile.id,
-        created_by: ticket.created_by,
-        assigned_to: ticket.assigned_to,
-        ...additionalData
-      }
-      
-      if (typeof db.sendOptimizedNotification === 'function') {
-        return await db.sendOptimizedNotification(payload)
-      } else {
-        return await db.sendNotification(type, ticket.id, message)
-      }
-    } catch (error) {
-      console.error('Failed to send notification:', error)
-      return { success: false, error: error.message }
-    }
-  }, [profile])
+  const documents = useMemo(() => {
+    return attachments.filter(attachment => attachment.type !== 'image')
+  }, [attachments])
 
-  // Event handlers with null safety
+  // Event handlers
   const handleEdit = useCallback(() => {
     if (!ticket) return
     
@@ -205,23 +258,23 @@ const TicketDetailPage = () => {
   }, [ticket])
 
   const handleSaveEdit = useCallback(async () => {
-  if (!ticket || !profile?.id) return;
-  
-  try {
-    setEditLoading(true);
+    if (!ticket || !profile?.id) return
     
-    // Check what fields have changed
-    const changes = {};
-    const changeDetails = [];
-    
-    if (editForm.title !== ticket.title) {
-      changes.title = editForm.title;
-      changeDetails.push({
-        field: 'title',
-        old_value: ticket.title,
-        new_value: editForm.title
-      });
-    }
+    try {
+      setEditLoading(true)
+      
+      const changes = {}
+      const changeDetails = []
+      
+      if (editForm.title !== ticket.title) {
+        changes.title = editForm.title
+        changeDetails.push({
+          field: 'title',
+          old_value: ticket.title,
+          new_value: editForm.title
+        })
+      }
+      
       if (editForm.description !== ticket.description) {
         changes.description = editForm.description
         changeDetails.push({
@@ -230,6 +283,7 @@ const TicketDetailPage = () => {
           new_value: editForm.description
         })
       }
+      
       if (editForm.priority !== ticket.priority) {
         changes.priority = editForm.priority
         changeDetails.push({
@@ -238,6 +292,7 @@ const TicketDetailPage = () => {
           new_value: editForm.priority
         })
       }
+      
       if (parseInt(editForm.base_id) !== ticket.base_id) {
         changes.base_id = parseInt(editForm.base_id)
         const oldBaseName = ticketDisplayData?.baseName || 'Unknown'
@@ -248,6 +303,7 @@ const TicketDetailPage = () => {
           new_value: newBaseName
         })
       }
+      
       if (editForm.status !== ticket.status) {
         changes.status = editForm.status
         changeDetails.push({
@@ -257,246 +313,227 @@ const TicketDetailPage = () => {
         })
       }
 
-      // If no changes, just close modal
       if (Object.keys(changes).length === 0) {
-      setShowEditModal(false);
-      return;
+        setShowEditModal(false)
+        return
+      }
+
+      await db.updateTicket(ticket.id, changes)
+
+      for (const change of changeDetails) {
+        await db.addTicketComment({
+          ticket_id: ticket.id,
+          user_id: profile.id,
+          comment_type: "comment",
+          comment: `${change.field.charAt(0).toUpperCase() + change.field.slice(1)} changed from "${change.old_value}" to "${change.new_value}"`,
+        })
+      }
+
+      const changedFields = changeDetails.map(c => c.field).join(', ')
+      await db.sendOptimizedNotification({
+        type: 'ticket_updated',
+        ticket_id: ticket.id,
+        ticket_title: editForm.title || ticket.title,
+        ticket_base: ticket.base_name || ticket.base,
+        message: `Ticket updated: ${changedFields} changed`,
+        actor_id: profile.id,
+        created_by: ticket.created_by,
+        assigned_to: ticket.assigned_to,
+        base_id: ticket.base_id,
+        changes: changeDetails
+      })
+
+      const [updatedTicket, updatedHistory] = await Promise.all([
+        db.getTicket(ticketId),
+        db.getTicketHistory(ticket.id)
+      ])
+      
+      setTicket(updatedTicket)
+      setHistory(updatedHistory)
+      setShowEditModal(false)
+      toast.success("Ticket updated successfully!")
+    } catch (error) {
+      console.error("Error updating ticket:", error)
+      toast.error("Failed to update ticket. Please try again.")
+    } finally {
+      setEditLoading(false)
     }
+  }, [ticket, editForm, profile, ticketDisplayData, availableBases, ticketId])
 
-    // Update ticket
-    await db.updateTicket(ticket.id, changes);
+  const handleAddComment = useCallback(async () => {
+    if (!newComment.trim() || !ticket || !profile?.id) return
+  
+    try {
+      const comment = {
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        comment: newComment.trim(),
+        comment_type: "comment",
+      }
+      
+      await db.addTicketComment(comment)
+      setNewComment("")
+      
+      await db.sendOptimizedNotification({
+        type: 'ticket_comment',
+        ticket_id: ticket.id,
+        ticket_title: ticket.title,
+        ticket_base: ticket.base_name || ticket.base,
+        message: `New comment: ${newComment.substring(0, 100)}${newComment.length > 100 ? '...' : ''}`,
+        actor_id: profile.id,
+        created_by: ticket.created_by,
+        assigned_to: ticket.assigned_to,
+        base_id: ticket.base_id
+      })
+      
+      const updatedHistory = await db.getTicketHistory(ticket.id)
+      setHistory(updatedHistory)
+      
+      toast.success("Comment added successfully!")
+    } catch (err) {
+      console.error("Error adding comment:", err)
+      toast.error("Failed to add comment.")
+    }
+  }, [newComment, ticket, profile])
 
-    // Add comment for each change
-    for (const change of changeDetails) {
+  const handleStatusChange = useCallback(async (newStatus) => {
+    if (!ticket || !profile?.id || newStatus === ticket.status) return
+  
+    try {
+      await db.updateTicket(ticket.id, { status: newStatus })
+      
       await db.addTicketComment({
         ticket_id: ticket.id,
         user_id: profile.id,
-        comment_type: "comment",
-        comment: `${change.field.charAt(0).toUpperCase() + change.field.slice(1)} changed from "${change.old_value}" to "${change.new_value}"`,
-      });
-    }
-
-    // ENHANCED: Send update notification
-    const changedFields = changeDetails.map(c => c.field).join(', ');
-    await db.sendOptimizedNotification({
-      type: 'ticket_updated',
-      ticket_id: ticket.id,
-      ticket_title: editForm.title || ticket.title,
-      ticket_base: ticket.base_name || ticket.base,
-      message: `Ticket updated: ${changedFields} changed`,
-      actor_id: profile.id,
-      created_by: ticket.created_by,
-      assigned_to: ticket.assigned_to,
-      base_id: ticket.base_id,
-      changes: changeDetails
-    });
-
-    // Refresh data
-    const [updatedTicket, updatedHistory] = await Promise.all([
-      db.getTicket(ticketId),
-      db.getTicketHistory(ticket.id)
-    ]);
-    
-    setTicket(updatedTicket);
-    setHistory(updatedHistory);
-    setShowEditModal(false);
-    toast.success("Ticket updated successfully!");
-  } catch (error) {
-    console.error("Error updating ticket:", error);
-    toast.error("Failed to update ticket. Please try again.");
-  } finally {
-    setEditLoading(false);
-  }
-}, [ticket, editForm, profile, ticketDisplayData, availableBases, ticketId]);
-
-  const handleAddComment = useCallback(async () => {
-    if (!newComment.trim() || !ticket || !profile?.id) return;
-  
-  try {
-    const comment = {
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment: newComment.trim(),
-      comment_type: "comment",
-    };
-    
-    await db.addTicketComment(comment);
-    setNewComment("");
-    
-    // ENHANCED: Send comment notification
-    await db.sendOptimizedNotification({
-      type: 'ticket_comment',
-      ticket_id: ticket.id,
-      ticket_title: ticket.title,
-      ticket_base: ticket.base_name || ticket.base,
-      message: `New comment: ${newComment.substring(0, 100)}${newComment.length > 100 ? '...' : ''}`,
-      actor_id: profile.id,
-      created_by: ticket.created_by,
-      assigned_to: ticket.assigned_to,
-      base_id: ticket.base_id
-    });
-    
-    // Refresh history
-    const updatedHistory = await db.getTicketHistory(ticket.id);
-    setHistory(updatedHistory);
-    
-    toast.success("Comment added successfully!");
-  } catch (err) {
-    console.error("Error adding comment:", err);
-    toast.error("Failed to add comment.");
-  }
-}, [newComment, ticket, profile]);
-
-  const handleStatusChange = useCallback(async (newStatus) => {
-    if (!ticket || !profile?.id || newStatus === ticket.status) return;
-  
-  try {
-    // Update ticket status
-    await db.updateTicket(ticket.id, { status: newStatus });
-    
-    // Add comment
-    await db.addTicketComment({
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment: `Status changed from ${ticket.status} to ${newStatus}`,
-      comment_type: "status_change",
-      old_value: ticket.status,
-      new_value: newStatus,
-    });
-    
-    // ENHANCED: Send status change notification
-    await db.sendOptimizedNotification({
-      type: 'ticket_status_change',
-      ticket_id: ticket.id,
-      ticket_title: ticket.title,
-      ticket_base: ticket.base_name || ticket.base,
-      message: `Status changed from ${ticket.status} to ${newStatus}`,
-      actor_id: profile.id,
-      created_by: ticket.created_by,
-      assigned_to: ticket.assigned_to,
-      base_id: ticket.base_id
-    });
-    
-    // Refresh data
-    const [updatedTicket, updatedHistory] = await Promise.all([
-      db.getTicket(ticketId),
-      db.getTicketHistory(ticket.id)
-    ]);
-    
-    setTicket(updatedTicket);
-    setHistory(updatedHistory);
-    toast.success(`Status changed to ${newStatus}`);
-  } catch (err) {
-    console.error("Error changing status:", err);
-    toast.error("Failed to change status.");
-  }
-}, [ticket, profile, ticketId]);
-
-  const handleAssignment = useCallback(async () => {
-  // Add null check for ticket
-  if (!ticket) {
-    toast.error('Ticket data not loaded yet. Please wait and try again.')
-    return
-  }
-
-  // Only Admin and HIS can assign tickets
-  if (!profile?.role || !['Admin', 'HIS'].includes(profile.role)) {
-    toast.error('Access denied: Only Admin and HIS users can assign tickets.')
-    return
-  }
-
-  setShowAssignmentModal(true)
-  try {
-    setUsersLoading(true)
-    let data, error
-
-    if (profile?.role === "Admin") {
-      // Admin can assign across all bases
-      const result = await supabase.rpc('get_admin_assignable_users_secure')
-      data = result.data
-      error = result.error
-    } else if (profile?.role === "HIS") {
-      // HIS can assign within their base
-      const result = await supabase.rpc('get_assignable_users_secure', {
+        comment: `Status changed from ${ticket.status} to ${newStatus}`,
+        comment_type: "status_change",
+        old_value: ticket.status,
+        new_value: newStatus,
+      })
+      
+      await db.sendOptimizedNotification({
+        type: 'ticket_status_change',
+        ticket_id: ticket.id,
+        ticket_title: ticket.title,
+        ticket_base: ticket.base_name || ticket.base,
+        message: `Status changed from ${ticket.status} to ${newStatus}`,
+        actor_id: profile.id,
+        created_by: ticket.created_by,
+        assigned_to: ticket.assigned_to,
         base_id: ticket.base_id
       })
-      data = result.data
-      error = result.error
+      
+      const [updatedTicket, updatedHistory] = await Promise.all([
+        db.getTicket(ticketId),
+        db.getTicketHistory(ticket.id)
+      ])
+      
+      setTicket(updatedTicket)
+      setHistory(updatedHistory)
+      toast.success(`Status changed to ${newStatus}`)
+    } catch (err) {
+      console.error("Error changing status:", err)
+      toast.error("Failed to change status.")
+    }
+  }, [ticket, profile, ticketId])
+
+  const handleAssignment = useCallback(async () => {
+    if (!ticket) {
+      toast.error('Ticket data not loaded yet. Please wait and try again.')
+      return
     }
 
-    if (error) {
-      console.error('RPC Error:', error)
-      throw error
+    if (!profile?.role || !['Admin', 'HIS'].includes(profile.role)) {
+      toast.error('Access denied: Only Admin and HIS users can assign tickets.')
+      return
     }
 
-    const processedUsers = (data || []).map(user => ({
-      ...user,
-      display_name: user.full_name || user.email || 'Unknown User'
-    }))
-    setAvailableUsers(processedUsers)
-  } catch (error) {
-    console.error('Error fetching users:', error)
-    toast.error('Failed to load available users.')
-    setAvailableUsers([])
-  } finally {
-    setUsersLoading(false)
-  }
-}, [ticket, profile?.role])
+    setShowAssignmentModal(true)
+    try {
+      setUsersLoading(true)
+      let data, error
+
+      if (profile?.role === "Admin") {
+        const result = await supabase.rpc('get_admin_assignable_users_secure')
+        data = result.data
+        error = result.error
+      } else if (profile?.role === "HIS") {
+        const result = await supabase.rpc('get_assignable_users_secure', {
+          base_id: ticket.base_id
+        })
+        data = result.data
+        error = result.error
+      }
+
+      if (error) {
+        console.error('RPC Error:', error)
+        throw error
+      }
+
+      const processedUsers = (data || []).map(user => ({
+        ...user,
+        display_name: user.full_name || user.email || 'Unknown User'
+      }))
+      setAvailableUsers(processedUsers)
+    } catch (error) {
+      console.error('Error fetching users:', error)
+      toast.error('Failed to load available users.')
+      setAvailableUsers([])
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [ticket, profile?.role])
 
   const handleAssignToUser = useCallback(async (selectedUserId, selectedUserName) => {
-    if (!ticket || !profile?.id) return;
+    if (!ticket || !profile?.id) return
   
-  if (ticket.assigned_to === selectedUserId) {
-    toast.error(`Ticket is already assigned to ${selectedUserName}!`);
-    return;
-  }
+    if (ticket.assigned_to === selectedUserId) {
+      toast.error(`Ticket is already assigned to ${selectedUserName}!`)
+      return
+    }
 
-  try {
-    const oldAssigneeName = ticketDisplayData?.assigneeName || "Unassigned";
-    
-    // Update ticket assignment
-    await db.updateTicket(ticket.id, {
-      assigned_to: selectedUserId,
-    });
+    try {
+      const oldAssigneeName = ticketDisplayData?.assigneeName || "Unassigned"
+      
+      await db.updateTicket(ticket.id, {
+        assigned_to: selectedUserId,
+      })
 
-    // Add comment for the assignment change
-    await db.addTicketComment({
-      ticket_id: ticket.id,
-      user_id: profile.id,
-      comment_type: "assignment",
-      old_value: oldAssigneeName,
-      new_value: selectedUserName || "Unassigned",
-      comment: selectedUserId ? `Assigned to ${selectedUserName}` : "Unassigned",
-    });
+      await db.addTicketComment({
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        comment_type: "assignment",
+        old_value: oldAssigneeName,
+        new_value: selectedUserName || "Unassigned",
+        comment: selectedUserId ? `Assigned to ${selectedUserName}` : "Unassigned",
+      })
 
-    // ENHANCED: Send assignment notification
-    await db.sendAssignmentNotification(
-      ticket,
-      ticket.assigned_to, // old assignee
-      selectedUserId, // new assignee
-      selectedUserName || "Unassigned",
-      profile.id // actor
-    );
+      await db.sendAssignmentNotification(
+        ticket,
+        ticket.assigned_to,
+        selectedUserId,
+        selectedUserName || "Unassigned",
+        profile.id
+      )
 
-    // Refresh data
-    const [updatedTicket, updatedHistory] = await Promise.all([
-      db.getTicket(ticketId),
-      db.getTicketHistory(ticket.id)
-    ]);
-    
-    setTicket(updatedTicket);
-    setHistory(updatedHistory);
+      const [updatedTicket, updatedHistory] = await Promise.all([
+        db.getTicket(ticketId),
+        db.getTicketHistory(ticket.id)
+      ])
+      
+      setTicket(updatedTicket)
+      setHistory(updatedHistory)
 
-    toast.success(selectedUserId ? `Ticket assigned to ${selectedUserName}!` : 'Ticket unassigned!');
-  } catch (err) {
-    console.error("Assignment error:", err);
-    toast.error("Failed to assign ticket.");
-  } finally {
-    setShowAssignmentModal(false);
-  }
-}, [ticket, profile, ticketDisplayData, ticketId]);
+      toast.success(selectedUserId ? `Ticket assigned to ${selectedUserName}!` : 'Ticket unassigned!')
+    } catch (err) {
+      console.error("Assignment error:", err)
+      toast.error("Failed to assign ticket.")
+    } finally {
+      setShowAssignmentModal(false)
+    }
+  }, [ticket, profile, ticketDisplayData, ticketId])
 
-  // Data fetching with proper error handling
+  // Effects
   useEffect(() => {
     if (!ticketId) {
       setError('No ticket ID provided')
@@ -511,10 +548,9 @@ const TicketDetailPage = () => {
         
         console.log('🔍 Fetching ticket data for ID:', ticketId)
         
-        // FIXED: Use ticketId for both calls, but supabase.js will handle appropriately
         const [ticketData, historyData] = await Promise.all([
-          db.getTicket(ticketId), // This is UUID from URL
-          db.getTicketHistory(ticketId) // This will be UUID too
+          db.getTicket(ticketId),
+          db.getTicketHistory(ticketId)
         ])
         
         console.log('🔍 RAW TICKET DATA:', ticketData)
@@ -538,7 +574,6 @@ const TicketDetailPage = () => {
     fetchData()
   }, [ticketId])
 
-  // Load bases when edit modal opens
   useEffect(() => {
     if (showEditModal && availableBases.length === 0) {
       const loadBases = async () => {
@@ -553,9 +588,11 @@ const TicketDetailPage = () => {
     }
   }, [showEditModal, availableBases.length])
 
-  // CONDITIONAL RENDERING ONLY AFTER ALL HOOKS ARE DECLARED
-  
-  // Early return if essential data is missing
+  useEffect(() => {
+    loadAttachments()
+  }, [loadAttachments])
+
+  // Early returns for loading/error states
   if (!profile) {
     return (
       <div className="flex justify-center items-center h-full">
@@ -584,7 +621,6 @@ const TicketDetailPage = () => {
     )
   }
 
-  // Error state
   if (error) {
     return (
       <div className="space-y-6">
@@ -625,7 +661,6 @@ const TicketDetailPage = () => {
     )
   }
 
-  // Loading state
   if (loading || !ticket || !ticketDisplayData) {
     return (
       <div className="space-y-6">
@@ -653,48 +688,47 @@ const TicketDetailPage = () => {
 
   // Render components
   const renderHeader = () => (
-  <div className="flex items-center justify-between">
-    <div className="flex items-center space-x-4">
-      <button
-        onClick={() => navigate("/tickets")}
-        className="p-2 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </button>
-      <div>
-        {/* Show the ticket_number if available, otherwise show short ID */}
-        <h1 className="text-2xl font-bold text-gray-900">
-          Ticket #{ticket?.ticket_number || ticketDisplayData?.shortId || 'Unknown'}
-        </h1>
-        <p className="text-sm text-gray-600">
-          Created {ticketDisplayData?.createdAt || 'Unknown'}
-        </p>
-      </div>
-    </div>
-    {canManageTicket && (
-      <div className="flex space-x-2">
-        <button 
-          onClick={handleEdit} 
-          className="btn-secondary"
-          disabled={!ticket} // Disable if ticket not loaded
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-4">
+        <button
+          onClick={() => navigate("/tickets")}
+          className="p-2 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
         >
-          <Edit className="h-4 w-4 mr-2" />
-          Edit
+          <ArrowLeft className="h-5 w-5" />
         </button>
-        {(profile?.role === "Admin" || profile?.role === "HIS") && (
-          <button 
-            onClick={handleAssignment} 
-            className="btn-secondary"
-            disabled={!ticket} // Disable if ticket not loaded
-          >
-            <UserCheck className="h-4 w-4 mr-2" />
-            Assign
-          </button>
-        )}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Ticket #{ticket?.ticket_number || ticketDisplayData?.shortId || 'Unknown'}
+          </h1>
+          <p className="text-sm text-gray-600">
+            Created {ticketDisplayData?.createdAt || 'Unknown'}
+          </p>
+        </div>
       </div>
-    )}
-  </div>
-)
+      {canManageTicket && (
+        <div className="flex space-x-2">
+          <button 
+            onClick={handleEdit} 
+            className="btn-secondary"
+            disabled={!ticket}
+          >
+            <Edit className="h-4 w-4 mr-2" />
+            Edit
+          </button>
+          {(profile?.role === "Admin" || profile?.role === "HIS") && (
+            <button 
+              onClick={handleAssignment} 
+              className="btn-secondary"
+              disabled={!ticket}
+            >
+              <UserCheck className="h-4 w-4 mr-2" />
+              Assign
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 
   const renderTicketDescription = () => (
     <div className="card">
@@ -708,6 +742,130 @@ const TicketDetailPage = () => {
       </div>
     </div>
   )
+
+  const renderScreenshots = () => {
+    if (screenshots.length === 0) return null
+
+    return (
+      <div className="card">
+        <div className="card-header">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center">
+            <ImageIcon className="h-5 w-5 mr-2" />
+            Screenshots ({screenshots.length})
+          </h3>
+        </div>
+        <div className="card-body">
+          {attachmentsLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <div className="loading-spinner h-6 w-6 mr-2"></div>
+              <span className="text-gray-500">Loading screenshots...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {screenshots.map((screenshot, index) => (
+                <div key={index} className="relative group">
+                  <div 
+                    className="aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
+                    onClick={() => handleImageClick(screenshot)}
+                  >
+                    <img
+                      src={screenshot.url}
+                      alt={screenshot.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMgMTZWOGEyIDIgMCAwIDEgMi0yaDEzYTIgMiAwIDAgMSAyIDJ2OGEyIDIgMCAwIDEtMiAySDVhMiAyIDAgMCAxLTItMnptMi4yNS0yLjI1TDE2IDRsNCA0djhhMiAyIDAgMCAxLTIgMkg2YTIgMiAwIDAgMS0yLTJ2LTJsMS4yNS0uMjV6Ii8+Cjwvc3ZnPgo='
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all flex items-center justify-center">
+                      <Eye className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 truncate" title={screenshot.name}>
+                      {screenshot.name}
+                    </p>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-xs text-gray-400">
+                        {screenshot.metadata?.size ? `${Math.round(screenshot.metadata.size / 1024)}KB` : ''}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDownload(screenshot)
+                        }}
+                        className="text-xs text-primary-600 hover:text-primary-700 flex items-center"
+                        title="Download"
+                      >
+                        <Download className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const renderAttachments = () => {
+    if (documents.length === 0) return null
+
+    return (
+      <div className="card">
+        <div className="card-header">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center">
+            <Paperclip className="h-5 w-5 mr-2" />
+            Attachments ({documents.length})
+          </h3>
+        </div>
+        <div className="card-body">
+          {attachmentsLoading ? (
+            <div className="flex justify-center items-center py-4">
+              <div className="loading-spinner h-6 w-6 mr-2"></div>
+              <span className="text-gray-500">Loading attachments...</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {documents.map((doc, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <FileText className="h-5 w-5 text-gray-400" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{doc.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {doc.metadata?.size ? `${Math.round(doc.metadata.size / 1024)}KB` : 'Unknown size'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => window.open(doc.url, '_blank')}
+                      className="text-sm text-primary-600 hover:text-primary-700 flex items-center"
+                      title="View"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-1" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownload(doc)}
+                      className="text-sm text-gray-600 hover:text-gray-700 flex items-center"
+                      title="Download"
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Download
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const renderActivityHistory = () => (
     <div className="card">
@@ -871,6 +1029,50 @@ const TicketDetailPage = () => {
     </div>
   )
 
+  const renderImageModal = () => (
+    showImageModal && selectedImage && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4">
+        <div className="relative max-w-4xl max-h-full bg-white rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="text-lg font-medium text-gray-900">{selectedImage.name}</h3>
+            <button
+              onClick={() => setShowImageModal(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="p-4">
+            <img
+              src={selectedImage.url}
+              alt={selectedImage.name}
+              className="max-w-full max-h-96 mx-auto"
+              onError={(e) => {
+                e.target.parentElement.innerHTML = '<div class="text-center text-gray-500 py-8">Failed to load image</div>'
+              }}
+            />
+          </div>
+          <div className="flex justify-end space-x-3 p-4 border-t">
+            <button
+              onClick={() => handleDownload(selectedImage)}
+              className="btn-secondary"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </button>
+            <button
+              onClick={() => window.open(selectedImage.url, '_blank')}
+              className="btn-primary"
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Open Full Size
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  )
+
   const renderEditModal = () => (
     showEditModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
@@ -995,7 +1197,6 @@ const TicketDetailPage = () => {
               </div>
             ) : (
               <div className="space-y-3 mb-6">
-                {/* Current user option */}
                 <button
                   className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border transition-colors"
                   onClick={() => handleAssignToUser(profile?.id, profile?.full_name || profile?.email)}
@@ -1013,7 +1214,6 @@ const TicketDetailPage = () => {
                   </div>
                 </button>
                 
-                {/* Other available users */}
                 {availableUsers
                   .filter(user => user.id !== profile?.id)
                   .map((user) => (
@@ -1037,7 +1237,6 @@ const TicketDetailPage = () => {
                   ))
                 }
                 
-                {/* Unassign option */}
                 {ticket?.assigned_to && (
                   <button
                     className="w-full px-4 py-2 text-left bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
@@ -1077,6 +1276,8 @@ const TicketDetailPage = () => {
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
           {renderTicketDescription()}
+          {renderScreenshots()}
+          {renderAttachments()}
           {renderActivityHistory()}
           {renderAddComment()}
         </div>
@@ -1088,6 +1289,7 @@ const TicketDetailPage = () => {
         </div>
       </div>
 
+      {renderImageModal()}
       {renderEditModal()}
       {renderAssignmentModal()}
     </div>

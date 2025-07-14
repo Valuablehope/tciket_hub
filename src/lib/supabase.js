@@ -531,62 +531,126 @@ async verifyTelegramConnection(userId, chatId) {
     }
   },
 
+  // Storage functions for ticket attachments
+async uploadTicketAttachment(fileName, file) {
+  try {
+    console.log(`📎 Uploading attachment: ${fileName}`);
+    
+    const { data, error } = await supabase.storage
+      .from('ticket-attachments')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) throw error;
+    
+    console.log('✅ Attachment uploaded successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ Error uploading attachment:', error);
+    throw error;
+  }
+},
+
+getTicketAttachmentUrl(fileName) {
+  try {
+    const { data } = supabase.storage
+      .from('ticket-attachments')
+      .getPublicUrl(fileName);
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Error getting attachment URL:', error);
+    throw error;
+  }
+},
+
+async deleteTicketAttachment(fileName) {
+  try {
+    const { data, error } = await supabase.storage
+      .from('ticket-attachments')
+      .remove([fileName]);
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('❌ Error deleting attachment:', error);
+    throw error;
+  }
+},
+
+async listTicketAttachments(ticketId) {
+  try {
+    const { data, error } = await supabase.storage
+      .from('ticket-attachments')
+      .list(ticketId);
+    
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error listing attachments:', error);
+    throw error;
+  }
+},
+
   async createTicket(ticketData) {
-    try {
-      console.log('🎫 Creating ticket:', ticketData);
+  try {
+    console.log('🎫 Creating ticket:', ticketData);
+    
+    const { data, error } = await supabase
+      .from('tickets')
+      .insert([ticketData])
+      .select(`
+        *,
+        bases!tickets_base_id_fkey(id, name),
+        creator_profile:profiles!tickets_created_by_fkey(id, full_name, email)
+      `)
+      .single();
       
-      const { data, error } = await supabase
-        .from('tickets')
-        .insert([ticketData])
-        .select(`
-          *,
-          bases!tickets_base_id_fkey(id, name),
-          creator_profile:profiles!tickets_created_by_fkey(id, full_name, email)
-        `)
-        .single();
-        
-      if (error) throw error;
-      
-      console.log('✅ Ticket created successfully:', data);
-      return data;
-    } catch (error) {
-      console.error('❌ Error creating ticket:', error);
-      throw error;
-    }
-  },
+    if (error) throw error;
+    
+    console.log('✅ Ticket created successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ Error creating ticket:', error);
+    throw error;
+  }
+},
+
 
   // FIXED: updateTicket now accepts ticket_number and queries by ticket_number
   async updateTicket(ticketId, updates) {
-    try {
-      console.log('🎫 Updating ticket:', ticketId, updates);
-      
-      const { data, error } = await supabase
-        .from('tickets')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', ticketId)  // CORRECTED: Use 'id' since we're passing UUID
-        .select(`
-          *,
-          bases!tickets_base_id_fkey(id, name),
-          creator_profile:profiles!tickets_created_by_fkey(id, full_name, email),
-          assignee_profile:profiles!tickets_assigned_to_fkey(id, full_name, email)
-        `)
-        .single();
-      
-      if (error) {
-        console.error('❌ Direct update failed:', error);
-        throw error;
-      }
-      
-      console.log('✅ Ticket updated successfully:', data);
-      return data;
-    } catch (error) {
-      console.error('❌ Error updating ticket:', error);
+  try {
+    console.log('🎫 Updating ticket:', ticketId, updates);
+    
+    const { data, error } = await supabase
+      .from('tickets')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', ticketId)
+      .select(`
+        *,
+        bases!tickets_base_id_fkey(id, name),
+        creator_profile:profiles!tickets_created_by_fkey(id, full_name, email),
+        assignee_profile:profiles!tickets_assigned_to_fkey(id, full_name, email)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('❌ Direct update failed:', error);
       throw error;
     }
-  },
+    
+    console.log('✅ Ticket updated successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ Error updating ticket:', error);
+    throw error;
+  }
+},
 
   // FIXED: deleteTicket now accepts ticket_number
   async deleteTicket(ticketId) {

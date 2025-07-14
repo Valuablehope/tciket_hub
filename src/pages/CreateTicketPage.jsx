@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/supabase.js";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Send, AlertCircle, CheckCircle, XCircle } from "lucide-react";
+import { ArrowLeft, Send, AlertCircle, CheckCircle, XCircle, Upload, X, Image, FileImage } from "lucide-react";
 
 const CreateTicketPage = () => {
   // State management
@@ -14,12 +14,23 @@ const CreateTicketPage = () => {
   const [dataLoading, setDataLoading] = useState(true);
   const [validationState, setValidationState] = useState({});
   
+  // Screenshot upload state
+  const [screenshots, setScreenshots] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [dragActive, setDragActive] = useState(false);
+  
   // Refs for performance
   const isUnmounting = useRef(false);
   const validationTimeouts = useRef({});
+  const fileInputRef = useRef(null);
   
   const { profile } = useAuth();
   const navigate = useNavigate();
+
+  // Configuration constants
+  const MAX_FILES = 5;
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const ACCEPTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 
   // Memoized available bases with comprehensive filtering
   const availableBases = useMemo(() => {
@@ -67,6 +78,187 @@ const CreateTicketPage = () => {
   // Watch form values for real-time feedback
   const watchedValues = watch();
   const { title, description, priority, base_id } = watchedValues;
+
+  // File validation helper
+  const validateFile = useCallback((file) => {
+    const errors = [];
+    
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      errors.push(`${file.name}: Invalid file type. Only images are allowed.`);
+    }
+    
+    if (file.size > MAX_FILE_SIZE) {
+      errors.push(`${file.name}: File too large. Maximum size is 10MB.`);
+    }
+    
+    return errors;
+  }, []);
+
+  // Optimized file processing
+  const processFiles = useCallback(async (files) => {
+    const fileArray = Array.from(files);
+    const totalFiles = screenshots.length + fileArray.length;
+    
+    if (totalFiles > MAX_FILES) {
+      toast.error(`Maximum ${MAX_FILES} screenshots allowed. You're trying to add ${fileArray.length} more to existing ${screenshots.length}.`);
+      return;
+    }
+
+    const validationErrors = [];
+    const validFiles = [];
+
+    fileArray.forEach(file => {
+      const errors = validateFile(file);
+      if (errors.length > 0) {
+        validationErrors.push(...errors);
+      } else {
+        validFiles.push(file);
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      toast.error(validationErrors.join('\n'));
+      return;
+    }
+
+    if (validFiles.length === 0) return;
+
+    // Process valid files
+    for (const file of validFiles) {
+      const fileId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      try {
+        // Create preview URL
+        const previewUrl = URL.createObjectURL(file);
+        
+        // Add to screenshots state immediately for better UX
+        const newScreenshot = {
+          id: fileId,
+          file,
+          previewUrl,
+          name: file.name,
+          size: file.size,
+          uploading: false,
+          uploaded: false,
+          url: null
+        };
+
+        setScreenshots(prev => [...prev, newScreenshot]);
+        
+      } catch (error) {
+        console.error('Error processing file:', error);
+        toast.error(`Failed to process ${file.name}`);
+      }
+    }
+  }, [screenshots.length, validateFile]);
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragActive(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    const files = e.dataTransfer.files;
+    if (files?.length > 0) {
+      processFiles(files);
+    }
+  }, [processFiles]);
+
+  // File input handler
+  const handleFileInput = useCallback((e) => {
+    const files = e.target.files;
+    if (files?.length > 0) {
+      processFiles(files);
+    }
+    // Reset input to allow re-selecting same files
+    e.target.value = '';
+  }, [processFiles]);
+
+  // Remove screenshot
+  const removeScreenshot = useCallback((screenshotId) => {
+    setScreenshots(prev => {
+      const updated = prev.filter(s => s.id !== screenshotId);
+      // Clean up object URLs to prevent memory leaks
+      const removed = prev.find(s => s.id === screenshotId);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return updated;
+    });
+  }, []);
+
+  // Upload screenshots to Supabase Storage
+  const uploadScreenshots = useCallback(async (ticketId) => {
+    if (screenshots.length === 0) return [];
+
+    const uploadedUrls = [];
+    
+    for (const screenshot of screenshots) {
+      if (screenshot.uploaded) {
+        uploadedUrls.push(screenshot.url);
+        continue;
+      }
+
+      try {
+        setUploadProgress(prev => ({ ...prev, [screenshot.id]: 0 }));
+        
+        // Generate unique filename
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substr(2, 9);
+        const fileExtension = screenshot.file.name.split('.').pop();
+        const fileName = `${ticketId}/${timestamp}_${randomId}.${fileExtension}`;
+        
+        // Upload to Supabase Storage
+        const { data, error } = await db.uploadTicketAttachment(fileName, screenshot.file);
+        
+        if (error) throw error;
+        
+        setUploadProgress(prev => ({ ...prev, [screenshot.id]: 100 }));
+        
+        // Get public URL
+        const { publicUrl } = db.getTicketAttachmentUrl(fileName);
+if (publicUrl) {
+  uploadedUrls.push(publicUrl);
+} else {
+  console.warn("⚠️ No public URL returned for file:", fileName);
+}
+
+        
+        // Update screenshot state
+        setScreenshots(prev => prev.map(s => 
+          s.id === screenshot.id 
+            ? { ...s, uploaded: true, url: publicUrl, uploading: false }
+            : s
+        ));
+        
+      } catch (error) {
+        console.error(`Failed to upload ${screenshot.name}:`, error);
+        setUploadProgress(prev => ({ ...prev, [screenshot.id]: -1 })); // Error state
+        toast.error(`Failed to upload ${screenshot.name}`);
+      }
+    }
+    
+    return uploadedUrls;
+  }, [screenshots]);
 
   // Debounced validation for better UX
   const debounceValidation = useCallback((field, value) => {
@@ -126,6 +318,17 @@ const CreateTicketPage = () => {
     }
   }, [defaultBaseId, base_id, setValue, availableBases.length]);
 
+  // Cleanup effect for object URLs
+  useEffect(() => {
+    return () => {
+      screenshots.forEach(screenshot => {
+        if (screenshot.previewUrl) {
+          URL.revokeObjectURL(screenshot.previewUrl);
+        }
+      });
+    };
+  }, [screenshots]);
+
   // Optimized data loading with error handling
   useEffect(() => {
     let isCancelled = false;
@@ -183,87 +386,102 @@ const CreateTicketPage = () => {
 
   // Optimized form submission with comprehensive error handling
   const onSubmit = useCallback(async (formData) => {
-  try {
-    setLoading(true);
-    clearErrors();
+    try {
+      setLoading(true);
+      clearErrors();
 
-    // Client-side validation
-    const selectedBase = availableBases.find(base => base.id === parseInt(formData.base_id));
-    if (!selectedBase) {
-      setError("base_id", {
-        type: "validation",
-        message: "Please select a valid base"
-      });
-      return;
-    }
-
-    // Prepare optimized payload
-    const ticketPayload = {
-      title: formData.title.trim(),
-      description: formData.description.trim(),
-      priority: formData.priority,
-      base_id: parseInt(formData.base_id),
-      created_by: profile.id,
-      status: "Open",
-    };
-
-    console.log("🎫 Creating ticket with payload:", ticketPayload);
-
-    // MISSING: Actually create the ticket!
-    const newTicket = await db.createTicket(ticketPayload);
-
-    if (!newTicket?.id) {
-      throw new Error("Failed to create ticket - no ID returned");
-    }
-
-    // Success feedback
-    toast.success("Ticket created successfully!");
-
-    // ENHANCED: Send notification to admins using the new system
-    Promise.resolve().then(async () => {
-      try {
-        await db.sendTicketCreatedNotification(newTicket, profile.id);
-        console.log('✅ Admin notification sent for new ticket');
-      } catch (notificationError) {
-        console.warn("Background notification failed:", notificationError);
-        // Don't show error to user for background operations
+      // Client-side validation
+      const selectedBase = availableBases.find(base => base.id === parseInt(formData.base_id));
+      if (!selectedBase) {
+        setError("base_id", {
+          type: "validation",
+          message: "Please select a valid base"
+        });
+        return;
       }
-    });
 
-    // Navigate to the new ticket
-    navigate(`/tickets/${newTicket.id}`);
+      // Prepare optimized payload
+      const ticketPayload = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        priority: formData.priority,
+        base_id: parseInt(formData.base_id),
+        created_by: profile.id,
+        status: "Open",
+      };
 
-  } catch (error) {
-    console.error("❌ Error creating ticket:", error);
-    
-    // Handle specific error cases
-    if (error.message?.includes("base_id")) {
-      setError("base_id", {
-        type: "server",
-        message: "Invalid base selection"
+      console.log("🎫 Creating ticket with payload:", ticketPayload);
+
+      // Create the ticket first
+      const newTicket = await db.createTicket(ticketPayload);
+
+      if (!newTicket?.id) {
+        throw new Error("Failed to create ticket - no ID returned");
+      }
+
+      // Upload screenshots if any
+      let uploadedUrls = [];
+      if (screenshots.length > 0) {
+        toast.loading(`Uploading ${screenshots.length} screenshot(s)...`);
+        uploadedUrls = await uploadScreenshots(newTicket.id);
+        toast.dismiss();
+        
+        if (uploadedUrls.length > 0) {
+          // Update ticket with attachment URLs
+          await db.updateTicket(newTicket.id, {
+            attachments: uploadedUrls
+          });
+          toast.success(`${uploadedUrls.length} screenshot(s) uploaded successfully!`);
+        }
+      }
+
+      // Success feedback
+      toast.success("Ticket created successfully!");
+
+      // Send notification to admins using the new system
+      Promise.resolve().then(async () => {
+        try {
+          await db.sendTicketCreatedNotification(newTicket, profile.id);
+          console.log('✅ Admin notification sent for new ticket');
+        } catch (notificationError) {
+          console.warn("Background notification failed:", notificationError);
+        }
       });
-    } else if (error.message?.includes("permission") || error.message?.includes("access")) {
-      setError("root", {
-        type: "permission",
-        message: "You don't have permission to create tickets for this base"
-      });
-    } else if (error.message?.includes("network") || error.message?.includes("fetch")) {
-      setError("root", {
-        type: "network",
-        message: "Network error. Please check your connection and try again."
-      });
-    } else {
-      setError("root", {
-        type: "server",
-        message: error.message || "Failed to create ticket. Please try again."
-      });
+
+      // Navigate to the new ticket
+      navigate(`/tickets/${newTicket.id}`);
+
+    } catch (error) {
+      console.error("❌ Error creating ticket:", error);
+      
+      // Handle specific error cases
+      if (error.message?.includes("base_id")) {
+        setError("base_id", {
+          type: "server",
+          message: "Invalid base selection"
+        });
+      } else if (error.message?.includes("permission") || error.message?.includes("access")) {
+        setError("root", {
+          type: "permission",
+          message: "You don't have permission to create tickets for this base"
+        });
+      } else if (error.message?.includes("network") || error.message?.includes("fetch")) {
+        setError("root", {
+          type: "network",
+          message: "Network error. Please check your connection and try again."
+        });
+      } else {
+        setError("root", {
+          type: "server",
+          message: error.message || "Failed to create ticket. Please try again."
+        });
+      }
+      
+      toast.error("Failed to create ticket");
+    } finally {
+      setLoading(false);
     }
-    
-    toast.error("Failed to create ticket");
-  } finally {
-    setLoading(false);
-  }
-}, [profile?.id, availableBases, navigate, setError, clearErrors]);
+  }, [profile?.id, availableBases, navigate, setError, clearErrors, screenshots, uploadScreenshots]);
 
   // Memoized form validation helpers
   const getFieldIcon = useCallback((fieldName) => {
@@ -292,6 +510,69 @@ const CreateTicketPage = () => {
       <span className={`text-xs ${colorClass} ${className}`}>
         {current}/{max}
       </span>
+    );
+  };
+
+  // Screenshot preview component
+  const ScreenshotPreview = ({ screenshot, onRemove }) => {
+    const progress = uploadProgress[screenshot.id];
+    const hasError = progress === -1;
+    
+    return (
+      <div className="relative group bg-gray-50 rounded-lg p-2 border border-gray-200">
+        <div className="aspect-square w-20 h-20 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
+          <img
+            src={screenshot.previewUrl}
+            alt={screenshot.name}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.style.display = 'none';
+              e.target.parentNode.innerHTML = '<FileImage className="h-8 w-8 text-gray-400" />';
+            }}
+          />
+        </div>
+        
+        {/* Progress indicator */}
+        {progress !== undefined && progress >= 0 && progress < 100 && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
+            <div className="text-white text-xs font-medium">{progress}%</div>
+          </div>
+        )}
+        
+        {/* Error indicator */}
+        {hasError && (
+          <div className="absolute inset-0 bg-red-500 bg-opacity-75 rounded-lg flex items-center justify-center">
+            <AlertCircle className="h-4 w-4 text-white" />
+          </div>
+        )}
+        
+        {/* Success indicator */}
+        {screenshot.uploaded && (
+          <div className="absolute top-1 left-1">
+            <CheckCircle className="h-4 w-4 text-green-500 bg-white rounded-full" />
+          </div>
+        )}
+        
+        {/* Remove button */}
+        <button
+          type="button"
+          onClick={() => onRemove(screenshot.id)}
+          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          disabled={loading}
+        >
+          <X className="h-3 w-3" />
+        </button>
+        
+        {/* File name */}
+        <div className="mt-1 text-xs text-gray-600 truncate" title={screenshot.name}>
+          {screenshot.name}
+        </div>
+        
+        {/* File size */}
+        <div className="text-xs text-gray-400">
+          {(screenshot.size / 1024 / 1024).toFixed(1)}MB
+        </div>
+      </div>
     );
   };
 
@@ -388,6 +669,7 @@ const CreateTicketPage = () => {
         <div className="text-right">
           <div className="text-xs text-gray-500">
             Form {isValid ? "✓" : "○"} {isDirty ? "Modified" : ""}
+            {screenshots.length > 0 && ` • ${screenshots.length} screenshot(s)`}
           </div>
         </div>
       </div>
@@ -483,6 +765,92 @@ const CreateTicketPage = () => {
               )}
             </div>
 
+            {/* Screenshots Upload Section */}
+            <div>
+              <label className="form-label">
+                Screenshots <span className="text-gray-500">(Optional)</span>
+              </label>
+              <p className="text-sm text-gray-600 mb-3">
+                Add screenshots to help explain your issue. Max {MAX_FILES} files, 10MB each.
+              </p>
+              
+              {/* Drop zone */}
+              <div
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  dragActive
+                    ? "border-blue-400 bg-blue-50"
+                    : "border-gray-300 hover:border-gray-400"
+                } ${loading ? "opacity-50 pointer-events-none" : ""}`}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ACCEPTED_TYPES.join(',')}
+                  onChange={handleFileInput}
+                  className="hidden"
+                  disabled={loading}
+                />
+                
+                <Upload className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                <p className="text-lg font-medium text-gray-900 mb-2">
+                  Drop screenshots here or click to browse
+                </p>
+                <p className="text-sm text-gray-600 mb-4">
+                  Supports: JPG, PNG, GIF, WebP (max 10MB each)
+                </p>
+                
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-secondary"
+                  disabled={loading || screenshots.length >= MAX_FILES}
+                >
+                  <Image className="h-4 w-4 mr-2" />
+                  Choose Files
+                </button>
+              </div>
+              
+              {/* Screenshot previews */}
+              {screenshots.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      Screenshots ({screenshots.length}/{MAX_FILES})
+                    </span>
+                    {screenshots.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          screenshots.forEach(s => s.previewUrl && URL.revokeObjectURL(s.previewUrl));
+                          setScreenshots([]);
+                          setUploadProgress({});
+                        }}
+                        className="text-sm text-red-600 hover:text-red-800"
+                        disabled={loading}
+                      >
+                        Remove All
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {screenshots.map(screenshot => (
+                      <ScreenshotPreview
+                        key={screenshot.id}
+                        screenshot={screenshot}
+                        onRemove={removeScreenshot}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Priority and Base Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Priority Field */}
@@ -564,6 +932,7 @@ const CreateTicketPage = () => {
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-500">
             {isDirty && "● Unsaved changes"}
+            {screenshots.length > 0 && ` • ${screenshots.length} screenshot(s) ready`}
           </div>
           
           <div className="flex space-x-4">
@@ -584,7 +953,7 @@ const CreateTicketPage = () => {
               {loading ? (
                 <>
                   <div className="loading-spinner h-4 w-4 mr-2"></div>
-                  Creating...
+                  {screenshots.length > 0 ? "Creating & Uploading..." : "Creating..."}
                 </>
               ) : (
                 <>
