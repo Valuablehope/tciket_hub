@@ -778,7 +778,7 @@ const TicketsPage = () => {
                         </td>
                         {profile?.role === "Admin" && (
                           <td className="table-cell text-sm text-gray-500">
-                            {ticket.base}
+                            {ticket.base_name}
                           </td>
                         )}
                         <td className="table-cell text-sm text-gray-500">
