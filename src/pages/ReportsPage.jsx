@@ -43,7 +43,7 @@ const ReportsPage = () => {
     color: status === 'Open' ? '#EF4444' : status === 'In Progress' ? '#F59E0B' : status === 'Resolved' ? '#22C55E' : '#6B7280'
   }))
 
-  const ticketsByBaseData = Object.entries(groupBy(tickets, 'base')).map(([base, count]) => ({ base, count }))
+  const ticketsByBaseData = Object.entries(groupBy(tickets, 'base_name')).map(([base, count]) => ({ base, count }))
 
   const ticketsByPriorityData = Object.entries(groupBy(tickets, 'priority')).map(([priority, count]) => ({
     priority,
