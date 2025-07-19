@@ -369,37 +369,46 @@ async verifyTelegramConnection(userId, chatId) {
   },
 
   // Helper method to format Telegram messages
-  formatTelegramMessage(type, { ticket_id, ticket_title, ticket_base, message }) {
-    const typeEmojis = {
-      'ticket_created': '🆕',
-      'ticket_assignment': '👤',
-      'ticket_updated': '✏️',
-      'ticket_status_change': '🔄',
-      'ticket_comment': '💬'
-    };
-    
-    const typeLabels = {
-      'ticket_created': 'New Ticket Created',
-      'ticket_assignment': 'Ticket Assigned',
-      'ticket_updated': 'Ticket Updated',
-      'ticket_status_change': 'Status Changed',
-      'ticket_comment': 'New Comment'
-    };
-    
-    const emoji = typeEmojis[type] || '🔔';
-    const label = typeLabels[type] || 'Ticket Update';
-    
-    let formattedMessage = `${emoji} *${label}*\n\n`;
-    formattedMessage += `🎫 *Ticket #${ticket_id}*: ${ticket_title}\n`;
-    
-    if (ticket_base) {
-      formattedMessage += `📍 *Base*: ${ticket_base}\n`;
-    }
-    
-    formattedMessage += `\n${message}`;
-    
-    return formattedMessage;
-  },
+  formatTelegramMessage(type, { ticket_id, ticket_title, ticket_base, message, project, expected_delivery_date }) {
+  const typeEmojis = {
+    'ticket_created': '🆕',
+    'ticket_assignment': '👤',
+    'ticket_updated': '✏️',
+    'ticket_status_change': '🔄',
+    'ticket_comment': '💬'
+  };
+  
+  const typeLabels = {
+    'ticket_created': 'New Ticket Created',
+    'ticket_assignment': 'Ticket Assigned',
+    'ticket_updated': 'Ticket Updated',
+    'ticket_status_change': 'Status Changed',
+    'ticket_comment': 'New Comment'
+  };
+  
+  const emoji = typeEmojis[type] || '🔔';
+  const label = typeLabels[type] || 'Ticket Update';
+  
+  let formattedMessage = `${emoji} *${label}*\n\n`;
+  formattedMessage += `🎫 *Ticket #${ticket_id}*: ${ticket_title}\n`;
+  
+  if (ticket_base) {
+    formattedMessage += `📍 *Base*: ${ticket_base}\n`;
+  }
+  
+  if (project) {
+    formattedMessage += `💼 *Project*: ${project}\n`;
+  }
+  
+  if (expected_delivery_date) {
+    const date = new Date(expected_delivery_date);
+    formattedMessage += `📅 *Expected Delivery*: ${date.toLocaleDateString()}\n`;
+  }
+  
+  formattedMessage += `\n${message}`;
+  
+  return formattedMessage;
+},
 
   // Helper function to get ticket UUID from ticket_number
   async getTicketIdFromNumber(ticketNumber) {
@@ -420,52 +429,53 @@ async verifyTelegramConnection(userId, chatId) {
 
   // Tickets - FIXED to handle ticket_number vs id properly
   async getTickets(filters = {}) {
-    try {
-      console.log('🎫 Fetching tickets with filters:', filters);
+  try {
+    console.log('🎫 Fetching tickets with filters:', filters);
+    
+    let query = supabase
+      .from('tickets')
+      .select(`
+        *,
+        bases!tickets_base_id_fkey(id, name),
+        creator_profile:profiles!tickets_created_by_fkey(id, full_name, email),
+        assignee_profile:profiles!tickets_assigned_to_fkey(id, full_name, email)
+      `)
+      .order('created_at', { ascending: false });
+
+    // Apply filters
+    if (filters.base) {
+      // Filter by base name - need to join with bases table
+      const { data: baseData } = await supabase
+        .from('bases')
+        .select('id')
+        .eq('name', filters.base)
+        .single();
       
-      let query = supabase
-        .from('tickets')
-        .select(`
-          *,
-          bases!tickets_base_id_fkey(id, name),
-          creator_profile:profiles!tickets_created_by_fkey(id, full_name, email),
-          assignee_profile:profiles!tickets_assigned_to_fkey(id, full_name, email)
-        `)
-        .order('created_at', { ascending: false });
-
-      // Apply filters
-      if (filters.base) {
-        // Filter by base name - need to join with bases table
-        const { data: baseData } = await supabase
-          .from('bases')
-          .select('id')
-          .eq('name', filters.base)
-          .single();
-        
-        if (baseData) {
-          query = query.eq('base_id', baseData.id);
-        }
+      if (baseData) {
+        query = query.eq('base_id', baseData.id);
       }
-      if (filters.status) query = query.eq('status', filters.status);
-      if (filters.created_by) query = query.eq('created_by', filters.created_by);
-      if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Transform data to include base_name
-      const transformedData = (data || []).map(ticket => ({
-        ...ticket,
-        base_name: ticket.bases?.name || 'Unknown Base'
-      }));
-
-      console.log('✅ Tickets fetched successfully:', transformedData.length);
-      return transformedData;
-    } catch (error) {
-      console.error('❌ Error fetching tickets:', error);
-      throw error;
     }
-  },
+    if (filters.status) query = query.eq('status', filters.status);
+    if (filters.created_by) query = query.eq('created_by', filters.created_by);
+    if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to);
+    if (filters.project) query = query.eq('project', filters.project); // Add project filter
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Transform data to include base_name
+    const transformedData = (data || []).map(ticket => ({
+      ...ticket,
+      base_name: ticket.bases?.name || 'Unknown Base'
+    }));
+
+    console.log('✅ Tickets fetched successfully:', transformedData.length);
+    return transformedData;
+  } catch (error) {
+    console.error('❌ Error fetching tickets:', error);
+    throw error;
+  }
+},
 
   async getAllTickets() {
     try {
@@ -598,9 +608,16 @@ async listTicketAttachments(ticketId) {
   try {
     console.log('🎫 Creating ticket:', ticketData);
     
+    // Ensure the new fields are included in the insert
+    const ticketPayload = {
+      ...ticketData,
+      project: ticketData.project || null,
+      expected_delivery_date: ticketData.expected_delivery_date || null
+    };
+    
     const { data, error } = await supabase
       .from('tickets')
-      .insert([ticketData])
+      .insert([ticketPayload])
       .select(`
         *,
         bases!tickets_base_id_fkey(id, name),
@@ -936,20 +953,21 @@ async listTicketAttachments(ticketId) {
 
   // Enhanced method for ticket creation notifications
   async sendTicketCreatedNotification(ticket, actor_id) {
-    const payload = {
-      type: 'ticket_created',
-      ticket_id: ticket.id,
-      ticket_title: ticket.title,
-      ticket_base: ticket.base_name || ticket.base,
-      message: `New support ticket has been created and requires attention.`,
-      actor_id,
-      created_by: ticket.created_by,
-      assigned_to: ticket.assigned_to,
-      base_id: ticket.base_id
-    };
-    
-    return await this.sendOptimizedNotification(payload);
-  },
+  const payload = {
+    type: 'ticket_created',
+    ticket_id: ticket.id,
+    ticket_title: ticket.title,
+    ticket_base: ticket.base_name || ticket.base,
+    message: `New support ticket has been created${ticket.project ? ` for project ${ticket.project}` : ''} and requires attention.`,
+    actor_id,
+    created_by: ticket.created_by,
+    assigned_to: ticket.assigned_to,
+    base_id: ticket.base_id,
+    project: ticket.project // Include project in notification payload
+  };
+  
+  return await this.sendOptimizedNotification(payload);
+},
 
   // Enhanced method for assignment notifications
   async sendAssignmentNotification(ticket, old_assignee_id, new_assignee_id, new_assignee_name, actor_id) {

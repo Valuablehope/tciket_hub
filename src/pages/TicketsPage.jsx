@@ -543,7 +543,9 @@ const TicketsPage = () => {
     </div>
   );
 
-  const renderAssignmentModal = () => (
+  // Updated renderAssignmentModal function for TicketsPage.jsx
+
+const renderAssignmentModal = () => (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
     <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-96 overflow-y-auto">
       <h2 className="text-xl font-semibold mb-4">Assign Ticket</h2>
@@ -556,14 +558,29 @@ const TicketsPage = () => {
           <div className="loading-spinner h-6 w-6 mx-auto mb-2"></div>
           <div className="text-gray-500">Loading users...</div>
         </div>
+      ) : actionLoading ? (
+        // Show saving state with spinner
+        <div className="text-center py-8">
+          <div className="loading-spinner h-8 w-8 mx-auto mb-4"></div>
+          <div className="text-gray-600 font-medium">Saving assignment...</div>
+          <div className="text-gray-500 text-sm mt-2">Please wait</div>
+        </div>
       ) : (
         <div className="space-y-3 mb-6">
           {/* Current user option - only show if user can be assigned tickets (Admin/HIS) */}
           {['Admin', 'HIS'].includes(profile?.role) && (
             <button
-              className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border transition-colors"
+              className={`w-full px-4 py-2 text-left rounded border transition-colors ${
+                selectedTicket?.assigned_to === profile.id
+                  ? 'bg-blue-50 border-blue-200'
+                  : 'bg-gray-50 border-gray-200'
+              } ${
+                actionLoading || selectedTicket?.assigned_to === profile.id
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:bg-gray-100'
+              }`}
               onClick={() => handleAssignToUser(profile.id, profile.full_name || profile.email)}
-              disabled={actionLoading}
+              disabled={actionLoading || selectedTicket?.assigned_to === profile.id}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -585,9 +602,17 @@ const TicketsPage = () => {
             .map((user) => (
               <button
                 key={user.id}
-                className="w-full px-4 py-2 text-left bg-gray-50 hover:bg-gray-100 rounded border transition-colors"
+                className={`w-full px-4 py-2 text-left rounded border transition-colors ${
+                  selectedTicket?.assigned_to === user.id
+                    ? 'bg-blue-50 border-blue-200'
+                    : 'bg-gray-50 border-gray-200'
+                } ${
+                  actionLoading || selectedTicket?.assigned_to === user.id
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-gray-100'
+                }`}
                 onClick={() => handleAssignToUser(user.id, user.display_name)}
-                disabled={actionLoading}
+                disabled={actionLoading || selectedTicket?.assigned_to === user.id}
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -610,7 +635,11 @@ const TicketsPage = () => {
           {/* Unassign option */}
           {selectedTicket?.assigned_to && (
             <button
-              className="w-full px-4 py-2 text-left bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
+              className={`w-full px-4 py-2 text-left rounded border border-red-200 transition-colors ${
+                actionLoading
+                  ? 'opacity-50 cursor-not-allowed bg-red-25'
+                  : 'bg-red-50 hover:bg-red-100'
+              }`}
               onClick={() => handleAssignToUser(null, "Unassigned")}
               disabled={actionLoading}
             >
@@ -628,11 +657,13 @@ const TicketsPage = () => {
       
       <div className="flex justify-end space-x-3">
         <button
-          className="btn-secondary"
+          className={`btn-secondary ${
+            actionLoading ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
           onClick={closeModals}
           disabled={actionLoading}
         >
-          Cancel
+          {actionLoading ? 'Processing...' : 'Cancel'}
         </button>
       </div>
     </div>

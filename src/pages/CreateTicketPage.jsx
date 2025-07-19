@@ -1,10 +1,28 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/supabase.js";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Send, AlertCircle, CheckCircle, XCircle, Upload, X, Image, FileImage } from "lucide-react";
+import {
+  ArrowLeft,
+  Send,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  Upload,
+  X,
+  Image,
+  FileImage,
+  Calendar,
+  Briefcase,
+} from "lucide-react";
 
 const CreateTicketPage = () => {
   // State management
@@ -13,51 +31,83 @@ const CreateTicketPage = () => {
   const [userBases, setUserBases] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [validationState, setValidationState] = useState({});
-  
+
   // Screenshot upload state
   const [screenshots, setScreenshots] = useState([]);
   const [uploadProgress, setUploadProgress] = useState({});
   const [dragActive, setDragActive] = useState(false);
-  
+
   // Refs for performance
   const isUnmounting = useRef(false);
   const validationTimeouts = useRef({});
   const fileInputRef = useRef(null);
-  
+
   const { profile } = useAuth();
   const navigate = useNavigate();
 
   // Configuration constants
   const MAX_FILES = 5;
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  const ACCEPTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  const ACCEPTED_TYPES = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ];
+
+  // Project options
+  const PROJECT_OPTIONS = [
+    "Cross-Cutting",
+    "EU-NDICI",
+    "AFD",
+    "LHF",
+    "CDCS",
+    "ECHO",
+    "IOM",
+    "SIDA",
+  ];
+
+  // Get minimum date (today)
+  const getMinDate = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today.toISOString().split("T")[0];
+  };
+
+  // Get max date (1 year from now)
+  const getMaxDate = () => {
+    const maxDate = new Date();
+    maxDate.setFullYear(maxDate.getFullYear() + 1);
+    return maxDate.toISOString().split("T")[0];
+  };
 
   // Memoized available bases with comprehensive filtering
   const availableBases = useMemo(() => {
     if (!profile) return [];
-    
+
     // Admins can access all bases
     if (profile.role === "Admin") {
       return allBases;
     }
-    
+
     // For other users, filter by their assigned bases
     if (!userBases.length) return [];
-    
-    return allBases.filter(base => 
-      userBases.some(userBase => userBase.id === base.id)
+
+    return allBases.filter((base) =>
+      userBases.some((userBase) => userBase.id === base.id)
     );
   }, [allBases, userBases, profile?.role]);
 
   // Smart default base selection
   const defaultBaseId = useMemo(() => {
     if (!availableBases.length) return "";
-    
+
     // If user has only one base, auto-select it
     if (availableBases.length === 1) {
       return availableBases[0].id.toString();
     }
-    
+
     // For multiple bases, no default selection to force user choice
     return "";
   }, [availableBases]);
@@ -70,87 +120,110 @@ const CreateTicketPage = () => {
       description: "",
       priority: "Medium",
       base_id: defaultBaseId,
+      project: "",
+      expected_delivery_date: "",
     },
   });
 
-  const { register, handleSubmit, formState: { errors, isValid, isDirty }, watch, setValue, clearErrors, setError } = form;
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isValid, isDirty },
+    watch,
+    setValue,
+    clearErrors,
+    setError,
+  } = form;
 
   // Watch form values for real-time feedback
   const watchedValues = watch();
-  const { title, description, priority, base_id } = watchedValues;
+  const {
+    title,
+    description,
+    priority,
+    base_id,
+    project,
+    expected_delivery_date,
+  } = watchedValues;
 
   // File validation helper
   const validateFile = useCallback((file) => {
     const errors = [];
-    
+
     if (!ACCEPTED_TYPES.includes(file.type)) {
       errors.push(`${file.name}: Invalid file type. Only images are allowed.`);
     }
-    
+
     if (file.size > MAX_FILE_SIZE) {
       errors.push(`${file.name}: File too large. Maximum size is 10MB.`);
     }
-    
+
     return errors;
   }, []);
 
   // Optimized file processing
-  const processFiles = useCallback(async (files) => {
-    const fileArray = Array.from(files);
-    const totalFiles = screenshots.length + fileArray.length;
-    
-    if (totalFiles > MAX_FILES) {
-      toast.error(`Maximum ${MAX_FILES} screenshots allowed. You're trying to add ${fileArray.length} more to existing ${screenshots.length}.`);
-      return;
-    }
+  const processFiles = useCallback(
+    async (files) => {
+      const fileArray = Array.from(files);
+      const totalFiles = screenshots.length + fileArray.length;
 
-    const validationErrors = [];
-    const validFiles = [];
-
-    fileArray.forEach(file => {
-      const errors = validateFile(file);
-      if (errors.length > 0) {
-        validationErrors.push(...errors);
-      } else {
-        validFiles.push(file);
+      if (totalFiles > MAX_FILES) {
+        toast.error(
+          `Maximum ${MAX_FILES} screenshots allowed. You're trying to add ${fileArray.length} more to existing ${screenshots.length}.`
+        );
+        return;
       }
-    });
 
-    if (validationErrors.length > 0) {
-      toast.error(validationErrors.join('\n'));
-      return;
-    }
+      const validationErrors = [];
+      const validFiles = [];
 
-    if (validFiles.length === 0) return;
+      fileArray.forEach((file) => {
+        const errors = validateFile(file);
+        if (errors.length > 0) {
+          validationErrors.push(...errors);
+        } else {
+          validFiles.push(file);
+        }
+      });
 
-    // Process valid files
-    for (const file of validFiles) {
-      const fileId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      try {
-        // Create preview URL
-        const previewUrl = URL.createObjectURL(file);
-        
-        // Add to screenshots state immediately for better UX
-        const newScreenshot = {
-          id: fileId,
-          file,
-          previewUrl,
-          name: file.name,
-          size: file.size,
-          uploading: false,
-          uploaded: false,
-          url: null
-        };
-
-        setScreenshots(prev => [...prev, newScreenshot]);
-        
-      } catch (error) {
-        console.error('Error processing file:', error);
-        toast.error(`Failed to process ${file.name}`);
+      if (validationErrors.length > 0) {
+        toast.error(validationErrors.join("\n"));
+        return;
       }
-    }
-  }, [screenshots.length, validateFile]);
+
+      if (validFiles.length === 0) return;
+
+      // Process valid files
+      for (const file of validFiles) {
+        const fileId = `${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+
+        try {
+          // Create preview URL
+          const previewUrl = URL.createObjectURL(file);
+
+          // Add to screenshots state immediately for better UX
+          const newScreenshot = {
+            id: fileId,
+            file,
+            previewUrl,
+            name: file.name,
+            size: file.size,
+            uploading: false,
+            uploaded: false,
+            url: null,
+          };
+
+          setScreenshots((prev) => [...prev, newScreenshot]);
+        } catch (error) {
+          console.error("Error processing file:", error);
+          toast.error(`Failed to process ${file.name}`);
+        }
+      }
+    },
+    [screenshots.length, validateFile]
+  );
 
   // Drag and drop handlers
   const handleDragEnter = useCallback((e) => {
@@ -172,33 +245,39 @@ const CreateTicketPage = () => {
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    
-    const files = e.dataTransfer.files;
-    if (files?.length > 0) {
-      processFiles(files);
-    }
-  }, [processFiles]);
+  const handleDrop = useCallback(
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragActive(false);
+
+      const files = e.dataTransfer.files;
+      if (files?.length > 0) {
+        processFiles(files);
+      }
+    },
+    [processFiles]
+  );
 
   // File input handler
-  const handleFileInput = useCallback((e) => {
-    const files = e.target.files;
-    if (files?.length > 0) {
-      processFiles(files);
-    }
-    // Reset input to allow re-selecting same files
-    e.target.value = '';
-  }, [processFiles]);
+  const handleFileInput = useCallback(
+    (e) => {
+      const files = e.target.files;
+      if (files?.length > 0) {
+        processFiles(files);
+      }
+      // Reset input to allow re-selecting same files
+      e.target.value = "";
+    },
+    [processFiles]
+  );
 
   // Remove screenshot
   const removeScreenshot = useCallback((screenshotId) => {
-    setScreenshots(prev => {
-      const updated = prev.filter(s => s.id !== screenshotId);
+    setScreenshots((prev) => {
+      const updated = prev.filter((s) => s.id !== screenshotId);
       // Clean up object URLs to prevent memory leaks
-      const removed = prev.find(s => s.id === screenshotId);
+      const removed = prev.find((s) => s.id === screenshotId);
       if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
       }
@@ -207,71 +286,77 @@ const CreateTicketPage = () => {
   }, []);
 
   // Upload screenshots to Supabase Storage
-  const uploadScreenshots = useCallback(async (ticketId) => {
-    if (screenshots.length === 0) return [];
+  const uploadScreenshots = useCallback(
+    async (ticketId) => {
+      if (screenshots.length === 0) return [];
 
-    const uploadedUrls = [];
-    
-    for (const screenshot of screenshots) {
-      if (screenshot.uploaded) {
-        uploadedUrls.push(screenshot.url);
-        continue;
+      const uploadedUrls = [];
+
+      for (const screenshot of screenshots) {
+        if (screenshot.uploaded) {
+          uploadedUrls.push(screenshot.url);
+          continue;
+        }
+
+        try {
+          setUploadProgress((prev) => ({ ...prev, [screenshot.id]: 0 }));
+
+          // Generate unique filename
+          const timestamp = Date.now();
+          const randomId = Math.random().toString(36).substr(2, 9);
+          const fileExtension = screenshot.file.name.split(".").pop();
+          const fileName = `${ticketId}/${timestamp}_${randomId}.${fileExtension}`;
+
+          // Upload to Supabase Storage
+          const { data, error } = await db.uploadTicketAttachment(
+            fileName,
+            screenshot.file
+          );
+
+          if (error) throw error;
+
+          setUploadProgress((prev) => ({ ...prev, [screenshot.id]: 100 }));
+
+          // Get public URL
+          const { publicUrl } = db.getTicketAttachmentUrl(fileName);
+          if (publicUrl) {
+            uploadedUrls.push(publicUrl);
+          } else {
+            console.warn("⚠️ No public URL returned for file:", fileName);
+          }
+
+          // Update screenshot state
+          setScreenshots((prev) =>
+            prev.map((s) =>
+              s.id === screenshot.id
+                ? { ...s, uploaded: true, url: publicUrl, uploading: false }
+                : s
+            )
+          );
+        } catch (error) {
+          console.error(`Failed to upload ${screenshot.name}:`, error);
+          setUploadProgress((prev) => ({ ...prev, [screenshot.id]: -1 })); // Error state
+          toast.error(`Failed to upload ${screenshot.name}`);
+        }
       }
 
-      try {
-        setUploadProgress(prev => ({ ...prev, [screenshot.id]: 0 }));
-        
-        // Generate unique filename
-        const timestamp = Date.now();
-        const randomId = Math.random().toString(36).substr(2, 9);
-        const fileExtension = screenshot.file.name.split('.').pop();
-        const fileName = `${ticketId}/${timestamp}_${randomId}.${fileExtension}`;
-        
-        // Upload to Supabase Storage
-        const { data, error } = await db.uploadTicketAttachment(fileName, screenshot.file);
-        
-        if (error) throw error;
-        
-        setUploadProgress(prev => ({ ...prev, [screenshot.id]: 100 }));
-        
-        // Get public URL
-        const { publicUrl } = db.getTicketAttachmentUrl(fileName);
-if (publicUrl) {
-  uploadedUrls.push(publicUrl);
-} else {
-  console.warn("⚠️ No public URL returned for file:", fileName);
-}
-
-        
-        // Update screenshot state
-        setScreenshots(prev => prev.map(s => 
-          s.id === screenshot.id 
-            ? { ...s, uploaded: true, url: publicUrl, uploading: false }
-            : s
-        ));
-        
-      } catch (error) {
-        console.error(`Failed to upload ${screenshot.name}:`, error);
-        setUploadProgress(prev => ({ ...prev, [screenshot.id]: -1 })); // Error state
-        toast.error(`Failed to upload ${screenshot.name}`);
-      }
-    }
-    
-    return uploadedUrls;
-  }, [screenshots]);
+      return uploadedUrls;
+    },
+    [screenshots]
+  );
 
   // Debounced validation for better UX
   const debounceValidation = useCallback((field, value) => {
     if (validationTimeouts.current[field]) {
       clearTimeout(validationTimeouts.current[field]);
     }
-    
+
     validationTimeouts.current[field] = setTimeout(() => {
       if (isUnmounting.current) return;
-      
+
       let isValidField = true;
       let message = "";
-      
+
       switch (field) {
         case "title":
           if (value && value.length < 5) {
@@ -294,10 +379,10 @@ if (publicUrl) {
         default:
           break;
       }
-      
-      setValidationState(prev => ({
+
+      setValidationState((prev) => ({
         ...prev,
-        [field]: { isValid: isValidField, message }
+        [field]: { isValid: isValidField, message },
       }));
     }, 300);
   }, []);
@@ -308,7 +393,8 @@ if (publicUrl) {
   }, [title, debounceValidation]);
 
   useEffect(() => {
-    if (description !== undefined) debounceValidation("description", description);
+    if (description !== undefined)
+      debounceValidation("description", description);
   }, [description, debounceValidation]);
 
   // Auto-set base when only one available
@@ -321,7 +407,7 @@ if (publicUrl) {
   // Cleanup effect for object URLs
   useEffect(() => {
     return () => {
-      screenshots.forEach(screenshot => {
+      screenshots.forEach((screenshot) => {
         if (screenshot.previewUrl) {
           URL.revokeObjectURL(screenshot.previewUrl);
         }
@@ -338,11 +424,13 @@ if (publicUrl) {
 
       try {
         setDataLoading(true);
-        
+
         // Load all data in parallel for better performance
         const [basesResult, userBasesResult] = await Promise.allSettled([
           db.getAllBases(),
-          profile.role === "Admin" ? Promise.resolve([]) : db.getUserBases(profile.id)
+          profile.role === "Admin"
+            ? Promise.resolve([])
+            : db.getUserBases(profile.id),
         ]);
 
         if (isCancelled) return;
@@ -363,7 +451,6 @@ if (publicUrl) {
           console.error("Failed to load user bases:", userBasesResult.reason);
           setUserBases([]);
         }
-
       } catch (error) {
         if (!isCancelled) {
           console.error("Failed to load initial data:", error);
@@ -385,127 +472,160 @@ if (publicUrl) {
   }, [profile?.id, profile?.role]);
 
   // Optimized form submission with comprehensive error handling
-  const onSubmit = useCallback(async (formData) => {
-    try {
-      setLoading(true);
-      clearErrors();
+  const onSubmit = useCallback(
+    async (formData) => {
+      try {
+        setLoading(true);
+        clearErrors();
 
-      // Client-side validation
-      const selectedBase = availableBases.find(base => base.id === parseInt(formData.base_id));
-      if (!selectedBase) {
-        setError("base_id", {
-          type: "validation",
-          message: "Please select a valid base"
-        });
-        return;
-      }
-
-      // Prepare optimized payload
-      const ticketPayload = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        priority: formData.priority,
-        base_id: parseInt(formData.base_id),
-        created_by: profile.id,
-        status: "Open",
-      };
-
-      console.log("🎫 Creating ticket with payload:", ticketPayload);
-
-      // Create the ticket first
-      const newTicket = await db.createTicket(ticketPayload);
-
-      if (!newTicket?.id) {
-        throw new Error("Failed to create ticket - no ID returned");
-      }
-
-      // Upload screenshots if any
-      let uploadedUrls = [];
-      if (screenshots.length > 0) {
-        toast.loading(`Uploading ${screenshots.length} screenshot(s)...`);
-        uploadedUrls = await uploadScreenshots(newTicket.id);
-        toast.dismiss();
-        
-        if (uploadedUrls.length > 0) {
-          // Update ticket with attachment URLs
-          await db.updateTicket(newTicket.id, {
-            attachments: uploadedUrls
+        // Client-side validation
+        const selectedBase = availableBases.find(
+          (base) => base.id === parseInt(formData.base_id)
+        );
+        if (!selectedBase) {
+          setError("base_id", {
+            type: "validation",
+            message: "Please select a valid base",
           });
-          toast.success(`${uploadedUrls.length} screenshot(s) uploaded successfully!`);
+          return;
         }
-      }
 
-      // Success feedback
-      toast.success("Ticket created successfully!");
+        // Prepare optimized payload
+        const ticketPayload = {
+          title: formData.title.trim(),
+          description: formData.description.trim(),
+          priority: formData.priority,
+          base_id: parseInt(formData.base_id),
+          created_by: profile.id,
+          status: "Open",
+          project: formData.project || null,
+          expected_delivery_date: formData.expected_delivery_date || null,
+        };
 
-      // Send notification to admins using the new system
-      Promise.resolve().then(async () => {
-        try {
-          await db.sendTicketCreatedNotification(newTicket, profile.id);
-          console.log('✅ Admin notification sent for new ticket');
-        } catch (notificationError) {
-          console.warn("Background notification failed:", notificationError);
+        console.log("🎫 Creating ticket with payload:", ticketPayload);
+
+        // Create the ticket first
+        const newTicket = await db.createTicket(ticketPayload);
+
+        if (!newTicket?.id) {
+          throw new Error("Failed to create ticket - no ID returned");
         }
-      });
 
-      // Navigate to the new ticket
-      navigate(`/tickets/${newTicket.id}`);
+        // Upload screenshots if any
+        let uploadedUrls = [];
+        if (screenshots.length > 0) {
+          toast.loading(`Uploading ${screenshots.length} screenshot(s)...`);
+          uploadedUrls = await uploadScreenshots(newTicket.id);
+          toast.dismiss();
 
-    } catch (error) {
-      console.error("❌ Error creating ticket:", error);
-      
-      // Handle specific error cases
-      if (error.message?.includes("base_id")) {
-        setError("base_id", {
-          type: "server",
-          message: "Invalid base selection"
+          if (uploadedUrls.length > 0) {
+            // Update ticket with attachment URLs
+            await db.updateTicket(newTicket.id, {
+              attachments: uploadedUrls,
+            });
+            toast.success(
+              `${uploadedUrls.length} screenshot(s) uploaded successfully!`
+            );
+          }
+        }
+
+        // Success feedback
+        toast.success("Ticket created successfully!");
+
+        // Send notification to admins using the new system
+        Promise.resolve().then(async () => {
+          try {
+            await db.sendTicketCreatedNotification(newTicket, profile.id);
+            console.log("✅ Admin notification sent for new ticket");
+          } catch (notificationError) {
+            console.warn("Background notification failed:", notificationError);
+          }
         });
-      } else if (error.message?.includes("permission") || error.message?.includes("access")) {
-        setError("root", {
-          type: "permission",
-          message: "You don't have permission to create tickets for this base"
-        });
-      } else if (error.message?.includes("network") || error.message?.includes("fetch")) {
-        setError("root", {
-          type: "network",
-          message: "Network error. Please check your connection and try again."
-        });
-      } else {
-        setError("root", {
-          type: "server",
-          message: error.message || "Failed to create ticket. Please try again."
-        });
+
+        // Navigate to the new ticket
+        navigate(`/tickets/${newTicket.id}`);
+      } catch (error) {
+        console.error("❌ Error creating ticket:", error);
+
+        // Handle specific error cases
+        if (error.message?.includes("base_id")) {
+          setError("base_id", {
+            type: "server",
+            message: "Invalid base selection",
+          });
+        } else if (
+          error.message?.includes("permission") ||
+          error.message?.includes("access")
+        ) {
+          setError("root", {
+            type: "permission",
+            message:
+              "You don't have permission to create tickets for this base",
+          });
+        } else if (
+          error.message?.includes("network") ||
+          error.message?.includes("fetch")
+        ) {
+          setError("root", {
+            type: "network",
+            message:
+              "Network error. Please check your connection and try again.",
+          });
+        } else {
+          setError("root", {
+            type: "server",
+            message:
+              error.message || "Failed to create ticket. Please try again.",
+          });
+        }
+
+        toast.error("Failed to create ticket");
+      } finally {
+        setLoading(false);
       }
-      
-      toast.error("Failed to create ticket");
-    } finally {
-      setLoading(false);
-    }
-  }, [profile?.id, availableBases, navigate, setError, clearErrors, screenshots, uploadScreenshots]);
+    },
+    [
+      profile?.id,
+      availableBases,
+      navigate,
+      setError,
+      clearErrors,
+      screenshots,
+      uploadScreenshots,
+    ]
+  );
 
   // Memoized form validation helpers
-  const getFieldIcon = useCallback((fieldName) => {
-    const validation = validationState[fieldName];
-    const value = watchedValues[fieldName];
-    
-    if (!value) return null;
-    
-    if (validation?.isValid === false) {
-      return <XCircle className="h-4 w-4 text-red-500" />;
-    }
-    
-    if (value && !errors[fieldName]) {
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
-    }
-    
-    return null;
-  }, [validationState, watchedValues, errors]);
+  const getFieldIcon = useCallback(
+    (fieldName) => {
+      const validation = validationState[fieldName];
+      const value = watchedValues[fieldName];
+
+      if (!value) return null;
+
+      if (validation?.isValid === false) {
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      }
+
+      if (value && !errors[fieldName]) {
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      }
+
+      return null;
+    },
+    [validationState, watchedValues, errors]
+  );
 
   // Character counter component
   const CharacterCounter = ({ current, max, className = "" }) => {
     const percentage = (current / max) * 100;
-    const colorClass = percentage > 90 ? "text-red-500" : percentage > 75 ? "text-yellow-500" : "text-gray-500";
-    
+    const colorClass =
+      percentage > 90
+        ? "text-red-500"
+        : percentage > 75
+        ? "text-yellow-500"
+        : "text-gray-500";
+
     return (
       <span className={`text-xs ${colorClass} ${className}`}>
         {current}/{max}
@@ -517,7 +637,7 @@ if (publicUrl) {
   const ScreenshotPreview = ({ screenshot, onRemove }) => {
     const progress = uploadProgress[screenshot.id];
     const hasError = progress === -1;
-    
+
     return (
       <div className="relative group bg-gray-50 rounded-lg p-2 border border-gray-200">
         <div className="aspect-square w-20 h-20 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
@@ -526,33 +646,34 @@ if (publicUrl) {
             alt={screenshot.name}
             className="w-full h-full object-cover"
             onError={(e) => {
-              e.target.style.display = 'none';
-              e.target.parentNode.innerHTML = '<FileImage className="h-8 w-8 text-gray-400" />';
+              e.target.style.display = "none";
+              e.target.parentNode.innerHTML =
+                '<FileImage className="h-8 w-8 text-gray-400" />';
             }}
           />
         </div>
-        
+
         {/* Progress indicator */}
         {progress !== undefined && progress >= 0 && progress < 100 && (
           <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
             <div className="text-white text-xs font-medium">{progress}%</div>
           </div>
         )}
-        
+
         {/* Error indicator */}
         {hasError && (
           <div className="absolute inset-0 bg-red-500 bg-opacity-75 rounded-lg flex items-center justify-center">
             <AlertCircle className="h-4 w-4 text-white" />
           </div>
         )}
-        
+
         {/* Success indicator */}
         {screenshot.uploaded && (
           <div className="absolute top-1 left-1">
             <CheckCircle className="h-4 w-4 text-green-500 bg-white rounded-full" />
           </div>
         )}
-        
+
         {/* Remove button */}
         <button
           type="button"
@@ -562,12 +683,15 @@ if (publicUrl) {
         >
           <X className="h-3 w-3" />
         </button>
-        
+
         {/* File name */}
-        <div className="mt-1 text-xs text-gray-600 truncate" title={screenshot.name}>
+        <div
+          className="mt-1 text-xs text-gray-600 truncate"
+          title={screenshot.name}
+        >
           {screenshot.name}
         </div>
-        
+
         {/* File size */}
         <div className="text-xs text-gray-400">
           {(screenshot.size / 1024 / 1024).toFixed(1)}MB
@@ -588,11 +712,13 @@ if (publicUrl) {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Create New Ticket</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Create New Ticket
+            </h1>
             <p className="text-sm text-gray-600">Loading form data...</p>
           </div>
         </div>
-        
+
         {/* Skeleton loader */}
         <div className="card">
           <div className="card-header">
@@ -600,7 +726,7 @@ if (publicUrl) {
             <div className="h-4 bg-gray-200 rounded w-2/3 mt-2 animate-pulse"></div>
           </div>
           <div className="card-body space-y-6">
-            {[1, 2, 3].map(i => (
+            {[1, 2, 3].map((i) => (
               <div key={i} className="space-y-2">
                 <div className="h-4 bg-gray-200 rounded w-1/4 animate-pulse"></div>
                 <div className="h-10 bg-gray-200 rounded animate-pulse"></div>
@@ -624,11 +750,13 @@ if (publicUrl) {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Create New Ticket</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Create New Ticket
+            </h1>
             <p className="text-sm text-gray-600">Access restricted</p>
           </div>
         </div>
-        
+
         <div className="card">
           <div className="card-body text-center py-8">
             <AlertCircle className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
@@ -636,7 +764,8 @@ if (publicUrl) {
               No Bases Available
             </h3>
             <p className="text-gray-600 mb-4">
-              You don't have access to any bases. Contact an administrator to assign you to a base.
+              You don't have access to any bases. Contact an administrator to
+              assign you to a base.
             </p>
             <button
               onClick={() => navigate("/tickets")}
@@ -662,7 +791,9 @@ if (publicUrl) {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">Create New Ticket</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Create New Ticket
+          </h1>
           <p className="text-sm text-gray-600">Submit a new support request</p>
         </div>
         {/* Progress indicator */}
@@ -678,12 +809,14 @@ if (publicUrl) {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="card">
           <div className="card-header">
-            <h3 className="text-lg font-medium text-gray-900">Ticket Information</h3>
+            <h3 className="text-lg font-medium text-gray-900">
+              Ticket Information
+            </h3>
             <p className="text-sm text-gray-600">
               Please provide detailed information about your request
             </p>
           </div>
-          
+
           <div className="card-body space-y-6">
             {/* Title Field */}
             <div>
@@ -696,32 +829,45 @@ if (publicUrl) {
                   <CharacterCounter current={title?.length || 0} max={200} />
                 </div>
               </div>
-              
+
               <input
                 id="title"
                 type="text"
-                className={`form-input ${errors.title ? "border-red-300 focus:ring-red-500" : 
-                  validationState.title?.isValid === false ? "border-yellow-300 focus:ring-yellow-500" :
-                  title && !errors.title ? "border-green-300 focus:ring-green-500" : ""
+                className={`form-input ${
+                  errors.title
+                    ? "border-red-300 focus:ring-red-500"
+                    : validationState.title?.isValid === false
+                    ? "border-yellow-300 focus:ring-yellow-500"
+                    : title && !errors.title
+                    ? "border-green-300 focus:ring-green-500"
+                    : ""
                 }`}
                 placeholder="Brief, descriptive title of your issue"
                 disabled={loading}
                 {...register("title", {
                   required: "Title is required",
-                  minLength: { value: 5, message: "Title must be at least 5 characters" },
-                  maxLength: { value: 200, message: "Title must be less than 200 characters" },
+                  minLength: {
+                    value: 5,
+                    message: "Title must be at least 5 characters",
+                  },
+                  maxLength: {
+                    value: 200,
+                    message: "Title must be less than 200 characters",
+                  },
                   pattern: {
                     value: /^(?!\s*$).+/,
-                    message: "Title cannot be empty or just whitespace"
-                  }
+                    message: "Title cannot be empty or just whitespace",
+                  },
                 })}
               />
-              
+
               {errors.title && (
                 <p className="form-error">{errors.title.message}</p>
               )}
               {validationState.title?.message && !errors.title && (
-                <p className="text-xs text-yellow-600 mt-1">{validationState.title.message}</p>
+                <p className="text-xs text-yellow-600 mt-1">
+                  {validationState.title.message}
+                </p>
               )}
             </div>
 
@@ -733,35 +879,51 @@ if (publicUrl) {
                 </label>
                 <div className="flex items-center space-x-2">
                   {getFieldIcon("description")}
-                  <CharacterCounter current={description?.length || 0} max={2000} />
+                  <CharacterCounter
+                    current={description?.length || 0}
+                    max={2000}
+                  />
                 </div>
               </div>
-              
+
               <textarea
                 id="description"
                 rows={6}
-                className={`form-input ${errors.description ? "border-red-300 focus:ring-red-500" : 
-                  validationState.description?.isValid === false ? "border-yellow-300 focus:ring-yellow-500" :
-                  description && !errors.description ? "border-green-300 focus:ring-green-500" : ""
+                className={`form-input ${
+                  errors.description
+                    ? "border-red-300 focus:ring-red-500"
+                    : validationState.description?.isValid === false
+                    ? "border-yellow-300 focus:ring-yellow-500"
+                    : description && !errors.description
+                    ? "border-green-300 focus:ring-green-500"
+                    : ""
                 }`}
                 placeholder="Please describe your issue in detail. Include steps to reproduce, error messages, and any relevant context..."
                 disabled={loading}
                 {...register("description", {
                   required: "Description is required",
-                  minLength: { value: 20, message: "Description must be at least 20 characters" },
-                  maxLength: { value: 2000, message: "Description must be less than 2000 characters" },
+                  minLength: {
+                    value: 20,
+                    message: "Description must be at least 20 characters",
+                  },
+                  maxLength: {
+                    value: 2000,
+                    message: "Description must be less than 2000 characters",
+                  },
                   pattern: {
                     value: /^(?!\s*$).+/,
-                    message: "Description cannot be empty or just whitespace"
-                  }
+                    message: "Description cannot be empty or just whitespace",
+                  },
                 })}
               />
-              
+
               {errors.description && (
                 <p className="form-error">{errors.description.message}</p>
               )}
               {validationState.description?.message && !errors.description && (
-                <p className="text-xs text-yellow-600 mt-1">{validationState.description.message}</p>
+                <p className="text-xs text-yellow-600 mt-1">
+                  {validationState.description.message}
+                </p>
               )}
             </div>
 
@@ -771,9 +933,10 @@ if (publicUrl) {
                 Screenshots <span className="text-gray-500">(Optional)</span>
               </label>
               <p className="text-sm text-gray-600 mb-3">
-                Add screenshots to help explain your issue. Max {MAX_FILES} files, 10MB each.
+                Add screenshots to help explain your issue. Max {MAX_FILES}{" "}
+                files, 10MB each.
               </p>
-              
+
               {/* Drop zone */}
               <div
                 className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
@@ -790,12 +953,12 @@ if (publicUrl) {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept={ACCEPTED_TYPES.join(',')}
+                  accept={ACCEPTED_TYPES.join(",")}
                   onChange={handleFileInput}
                   className="hidden"
                   disabled={loading}
                 />
-                
+
                 <Upload className="h-12 w-12 mx-auto mb-4 text-gray-400" />
                 <p className="text-lg font-medium text-gray-900 mb-2">
                   Drop screenshots here or click to browse
@@ -803,7 +966,7 @@ if (publicUrl) {
                 <p className="text-sm text-gray-600 mb-4">
                   Supports: JPG, PNG, GIF, WebP (max 10MB each)
                 </p>
-                
+
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -814,7 +977,7 @@ if (publicUrl) {
                   Choose Files
                 </button>
               </div>
-              
+
               {/* Screenshot previews */}
               {screenshots.length > 0 && (
                 <div className="mt-4">
@@ -826,7 +989,10 @@ if (publicUrl) {
                       <button
                         type="button"
                         onClick={() => {
-                          screenshots.forEach(s => s.previewUrl && URL.revokeObjectURL(s.previewUrl));
+                          screenshots.forEach(
+                            (s) =>
+                              s.previewUrl && URL.revokeObjectURL(s.previewUrl)
+                          );
                           setScreenshots([]);
                           setUploadProgress({});
                         }}
@@ -837,9 +1003,9 @@ if (publicUrl) {
                       </button>
                     )}
                   </div>
-                  
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {screenshots.map(screenshot => (
+                    {screenshots.map((screenshot) => (
                       <ScreenshotPreview
                         key={screenshot.id}
                         screenshot={screenshot}
@@ -851,7 +1017,7 @@ if (publicUrl) {
               )}
             </div>
 
-            {/* Priority and Base Row */}
+            {/* Priority, Base, Project, and Expected Delivery Date Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Priority Field */}
               <div>
@@ -860,9 +1026,13 @@ if (publicUrl) {
                 </label>
                 <select
                   id="priority"
-                  className={`form-input ${errors.priority ? "border-red-300 focus:ring-red-500" : ""}`}
+                  className={`form-input ${
+                    errors.priority ? "border-red-300 focus:ring-red-500" : ""
+                  }`}
                   disabled={loading}
-                  {...register("priority", { required: "Priority is required" })}
+                  {...register("priority", {
+                    required: "Priority is required",
+                  })}
                 >
                   <option value="Low">🟢 Low - General questions</option>
                   <option value="Medium">🟡 Medium - Standard issues</option>
@@ -881,35 +1051,128 @@ if (publicUrl) {
                 </label>
                 <select
                   id="base_id"
-                  className={`form-input ${errors.base_id ? "border-red-300 focus:ring-red-500" : ""}`}
+                  className={`form-input ${
+                    errors.base_id ? "border-red-300 focus:ring-red-500" : ""
+                  }`}
                   disabled={loading || availableBases.length === 1}
                   {...register("base_id", {
                     required: "Base selection is required",
-                    validate: value => {
+                    validate: (value) => {
                       if (!value) return "Please select a base";
-                      const exists = availableBases.some(base => base.id === parseInt(value));
+                      const exists = availableBases.some(
+                        (base) => base.id === parseInt(value)
+                      );
                       return exists || "Invalid base selection";
-                    }
+                    },
                   })}
                 >
                   <option value="">-- Select Base --</option>
-                  {availableBases.map(base => (
+                  {availableBases.map((base) => (
                     <option key={base.id} value={base.id}>
                       {base.name}
                     </option>
                   ))}
                 </select>
-                
+
                 {errors.base_id && (
                   <p className="form-error">{errors.base_id.message}</p>
                 )}
-                
+
                 {/* Helper text */}
                 <div className="text-xs text-gray-500 mt-1">
-                  {availableBases.length === 1 && "Auto-selected (only available base)"}
-                  {profile?.role === "Admin" && availableBases.length > 1 && "Admin: Can create tickets for any base"}
-                  {profile?.role !== "Admin" && availableBases.length > 1 && `${availableBases.length} bases available`}
+                  {availableBases.length === 1 &&
+                    "Auto-selected (only available base)"}
+                  {profile?.role === "Admin" &&
+                    availableBases.length > 1 &&
+                    "Admin: Can create tickets for any base"}
+                  {profile?.role !== "Admin" &&
+                    availableBases.length > 1 &&
+                    `${availableBases.length} bases available`}
                 </div>
+              </div>
+
+              {/* Project Field */}
+              <div>
+                <label
+                  htmlFor="project"
+                  className="form-label flex items-center"
+                >
+                  <Briefcase className="h-4 w-4 mr-1" />
+                  Project <span className="text-gray-500 ml-1">(Optional)</span>
+                </label>
+                <select
+                  id="project"
+                  className={`form-input ${
+                    errors.project ? "border-red-300 focus:ring-red-500" : ""
+                  }`}
+                  disabled={loading}
+                  {...register("project")}
+                >
+                  <option value="">-- Select Project --</option>
+                  {PROJECT_OPTIONS.map((project) => (
+                    <option key={project} value={project}>
+                      {project}
+                    </option>
+                  ))}
+                </select>
+                {errors.project && (
+                  <p className="form-error">{errors.project.message}</p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Select the project this ticket relates to
+                </p>
+              </div>
+
+              {/* Expected Delivery Date Field */}
+              <div>
+                <label
+                  htmlFor="expected_delivery_date"
+                  className="form-label flex items-center"
+                >
+                  <Calendar className="h-4 w-4 mr-1" />
+                  Expected Delivery Date{" "}
+                  <span className="text-gray-500 ml-1">(Optional)</span>
+                </label>
+                <input
+                  id="expected_delivery_date"
+                  type="date"
+                  min={getMinDate()}
+                  max={getMaxDate()}
+                  className={`form-input ${
+                    errors.expected_delivery_date
+                      ? "border-red-300 focus:ring-red-500"
+                      : ""
+                  }`}
+                  disabled={loading}
+                  {...register("expected_delivery_date", {
+                    validate: (value) => {
+                      if (!value) return true; // Optional field
+                      const selectedDate = new Date(value);
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+
+                      if (selectedDate < today) {
+                        return "Expected delivery date cannot be in the past";
+                      }
+
+                      const maxDate = new Date();
+                      maxDate.setFullYear(maxDate.getFullYear() + 1);
+                      if (selectedDate > maxDate) {
+                        return "Expected delivery date cannot be more than 1 year in the future";
+                      }
+
+                      return true;
+                    },
+                  })}
+                />
+                {errors.expected_delivery_date && (
+                  <p className="form-error">
+                    {errors.expected_delivery_date.message}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  When do you need this resolved by?
+                </p>
               </div>
             </div>
           </div>
@@ -921,8 +1184,12 @@ if (publicUrl) {
             <div className="flex items-center">
               <AlertCircle className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" />
               <div>
-                <h4 className="text-sm font-medium text-red-800">Submission Error</h4>
-                <p className="text-sm text-red-700 mt-1">{errors.root.message}</p>
+                <h4 className="text-sm font-medium text-red-800">
+                  Submission Error
+                </h4>
+                <p className="text-sm text-red-700 mt-1">
+                  {errors.root.message}
+                </p>
               </div>
             </div>
           </div>
@@ -932,9 +1199,10 @@ if (publicUrl) {
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-500">
             {isDirty && "● Unsaved changes"}
-            {screenshots.length > 0 && ` • ${screenshots.length} screenshot(s) ready`}
+            {screenshots.length > 0 &&
+              ` • ${screenshots.length} screenshot(s) ready`}
           </div>
-          
+
           <div className="flex space-x-4">
             <button
               type="button"
@@ -944,7 +1212,7 @@ if (publicUrl) {
             >
               Cancel
             </button>
-            
+
             <button
               type="submit"
               disabled={loading || !isValid || !isDirty}
@@ -953,7 +1221,9 @@ if (publicUrl) {
               {loading ? (
                 <>
                   <div className="loading-spinner h-4 w-4 mr-2"></div>
-                  {screenshots.length > 0 ? "Creating & Uploading..." : "Creating..."}
+                  {screenshots.length > 0
+                    ? "Creating & Uploading..."
+                    : "Creating..."}
                 </>
               ) : (
                 <>
