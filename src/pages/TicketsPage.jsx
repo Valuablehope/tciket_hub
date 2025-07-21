@@ -40,6 +40,10 @@ const TicketsPage = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  
+  // Add state for bases
+  const [availableBases, setAvailableBases] = useState([]);
+  const [basesLoading, setBasesLoading] = useState(false);
 
   // Notification helper functions (same as TicketDetailPage)
   const buildNotificationPayload = (ticket, type, message, additionalData = {}) => ({
@@ -96,6 +100,28 @@ const TicketsPage = () => {
       return { success: false, error: error.message };
     }
   };
+
+  // Fetch bases when component mounts (only for Admin users)
+  useEffect(() => {
+    const fetchBases = async () => {
+      if (profile?.role !== "Admin") return;
+      
+      try {
+        setBasesLoading(true);
+        const bases = await db.getAllBases();
+        setAvailableBases(bases);
+      } catch (error) {
+        console.error("Failed to fetch bases:", error);
+        toast.error("Failed to load bases");
+      } finally {
+        setBasesLoading(false);
+      }
+    };
+    
+    if (profile?.id) {
+      fetchBases();
+    }
+  }, [profile]);
 
   useEffect(() => {
     const fetchTickets = async () => {
@@ -500,9 +526,12 @@ const TicketsPage = () => {
                 onChange={(e) => setEditForm({...editForm, base: e.target.value})}
                 disabled={editLoading}
               >
-                <option value="South">South</option>
-                <option value="BML">BML</option>
-                <option value="North">North</option>
+                {/* Dynamic bases from database */}
+                {availableBases.map((base) => (
+                  <option key={base.id} value={base.name}>
+                    {base.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -669,6 +698,37 @@ const renderAssignmentModal = () => (
     </div>
   </div>
 );
+
+  const renderDeleteModal = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+        <div className="flex items-center mb-4">
+          <AlertTriangle className="h-6 w-6 text-red-600 mr-3" />
+          <h2 className="text-xl font-semibold">Delete Ticket</h2>
+        </div>
+        <p className="text-gray-600 mb-6">
+          Are you sure you want to delete this ticket? This action cannot be undone.
+        </p>
+        <div className="flex justify-end space-x-3">
+          <button
+            onClick={closeModals}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded transition-colors"
+            disabled={actionLoading}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDeleteConfirm}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+            disabled={actionLoading}
+          >
+            {actionLoading ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const canEditTicket = (ticket) => {
     return (
       profile?.role === "Admin" ||
@@ -741,11 +801,14 @@ const renderAssignmentModal = () => (
                   className="form-input"
                   value={baseFilter}
                   onChange={(e) => setBaseFilter(e.target.value)}
+                  disabled={basesLoading}
                 >
                   <option value="all">All Bases</option>
-                  <option value="South">South</option>
-                  <option value="BML">BML</option>
-                  <option value="North">North</option>
+                  {availableBases.map((base) => (
+                    <option key={base.id} value={base.name}>
+                      {base.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
