@@ -15,6 +15,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [sessionError, setSessionError] = useState(null)
   const initialized = useRef(false)
   const timeoutRef = useRef(null)
   const listenerRef = useRef(null)
@@ -22,12 +23,35 @@ export const AuthProvider = ({ children }) => {
 
   const clearSupabaseStorage = () => {
     console.log('🧹 Clearing Supabase storage')
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('sb-')) {
-        localStorage.removeItem(key)
-        console.log(`🗑️ Removed: ${key}`)
-      }
-    })
+    try {
+      // Clear specific auth-related keys
+      const authKeys = [
+        'supabase.auth.token',
+        'sb-auth-token', 
+        'sb-refresh-token'
+      ];
+      
+      // Remove specific auth keys
+      authKeys.forEach(key => {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+          console.log(`🗑️ Removed specific key: ${key}`);
+        }
+      });
+      
+      // Also clear any keys that start with 'sb-'
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('sb-')) {
+          localStorage.removeItem(key)
+          console.log(`🗑️ Removed: ${key}`)
+        }
+      })
+      
+      // Clear session storage as well
+      sessionStorage.clear()
+    } catch (error) {
+      console.warn('⚠️ Could not clear storage completely:', error)
+    }
   }
 
   const loadProfile = async (sessionUser) => {
@@ -42,15 +66,26 @@ export const AuthProvider = ({ children }) => {
       
       const profileData = await Promise.race([profilePromise, timeoutPromise])
       setProfile(profileData)
+      setSessionError(null) // Clear any session errors on successful profile load
       console.log('✅ Profile loaded successfully:', profileData)
       return profileData
     } catch (err) {
       console.error('❌ Failed to load profile:', err)
       console.error('❌ Profile error details:', err.message, err.stack)
-      setProfile(null)
       
-      // Don't let profile loading failure block the auth
-      console.log('⚠️ Continuing without profile data')
+      // Check if it's an auth-related error
+      if (err.message?.includes('JWT') || 
+          err.message?.includes('auth') || 
+          err.code === 'PGRST301' ||
+          err.name === 'AuthSessionMissingError') {
+        console.warn('🔑 Profile loading failed due to auth error - session may be expired')
+        setSessionError(err)
+        // Don't set profile to null immediately - let the auth state handler deal with it
+      } else {
+        setProfile(null)
+        console.log('⚠️ Continuing without profile data')
+      }
+      
       return null
     }
   }
@@ -66,11 +101,28 @@ export const AuthProvider = ({ children }) => {
   const handleAuthError = async (error, context) => {
     console.error(`❌ Auth error in ${context}:`, error)
     
-    // Clear potentially corrupted session
+    // Set the session error state
+    setSessionError(error)
+    
+    // For auth session missing errors, just clear local state without trying to sign out
+    if (error.name === 'AuthSessionMissingError' || 
+        error.message?.includes('Auth session missing') ||
+        error.message?.includes('session missing')) {
+      console.log('🔄 Session missing error - clearing local state without additional sign out')
+      clearSupabaseStorage()
+      setUser(null)
+      setProfile(null)
+      setSessionError(null) // Clear error after handling
+      finishLoading()
+      return
+    }
+    
+    // For other auth errors, try to sign out
     try {
       await supabase.auth.signOut()
     } catch (signOutError) {
       console.error('❌ Error during signOut:', signOutError)
+      // Even if sign out fails, continue with cleanup
     }
     
     clearSupabaseStorage()
@@ -110,6 +162,11 @@ export const AuthProvider = ({ children }) => {
             timeoutRef.current = null
           }
 
+          // Clear session error on new auth events (except for errors)
+          if (event !== 'SIGNED_OUT' || session) {
+            setSessionError(null)
+          }
+
           try {
             if (event === 'SIGNED_IN' && session?.user) {
               console.log('✅ User signed in:', session.user.id)
@@ -134,6 +191,7 @@ export const AuthProvider = ({ children }) => {
               console.log('👋 User signed out or session cleared')
               setUser(null)
               setProfile(null)
+              setSessionError(null) // Clear session errors on sign out
               
               // Clean up storage on sign out
               if (event === 'SIGNED_OUT') {
@@ -144,6 +202,7 @@ export const AuthProvider = ({ children }) => {
             } else if (event === 'TOKEN_REFRESHED' && session?.user) {
               console.log('🔄 Token refreshed for user:', session.user.id)
               setUser(session.user)
+              setSessionError(null) // Clear any session errors on successful refresh
               // Profile should still be valid, no need to reload
               finishLoading()
             } else {
@@ -153,8 +212,7 @@ export const AuthProvider = ({ children }) => {
             }
           } catch (error) {
             console.error('❌ Error in auth state change handler:', error)
-            // Don't let profile errors block auth completion
-            finishLoading()
+            await handleAuthError(error, 'auth state change')
           }
         })
 
@@ -194,9 +252,7 @@ export const AuthProvider = ({ children }) => {
             }
           } catch (error) {
             console.error('❌ Fallback error:', error)
-            setUser(null)
-            setProfile(null)
-            finishLoading()
+            await handleAuthError(error, 'fallback')
           }
         }, 3000) // Reduced timeout to 3 seconds
 
@@ -261,6 +317,8 @@ export const AuthProvider = ({ children }) => {
   const signUp = async (email, password, fullName, base) => {
     try {
       console.log('📝 Signing up user:', email, { fullName, base })
+      setSessionError(null) // Clear any existing session errors
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -285,6 +343,7 @@ export const AuthProvider = ({ children }) => {
       return data
     } catch (error) {
       console.error('❌ Sign up error:', error)
+      setSessionError(error)
       throw error
     }
   }
@@ -292,12 +351,15 @@ export const AuthProvider = ({ children }) => {
   const signIn = async (email, password) => {
     try {
       console.log('🔐 Signing in user:', email)
+      setSessionError(null) // Clear any existing session errors
+      
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       console.log('✅ User signed in successfully')
       return data
     } catch (error) {
       console.error('❌ Sign in error:', error)
+      setSessionError(error)
       throw error
     }
   }
@@ -305,12 +367,73 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       console.log('👋 Signing out user')
+      setSessionError(null) // Clear any existing session errors
+      
+      // First check if we have a session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
+      if (sessionError) {
+        console.warn('⚠️ Error getting session during sign out:', sessionError)
+        // If we can't get the session, it might already be expired
+        clearSupabaseStorage()
+        setUser(null)
+        setProfile(null)
+        console.log('✅ Local state cleared due to session error')
+        return
+      }
+
+      if (!session) {
+        console.log('ℹ️ No active session found during sign out, clearing local data')
+        clearSupabaseStorage()
+        setUser(null)
+        setProfile(null)
+        console.log('✅ Local state cleared (no session)')
+        return
+      }
+
+      // Attempt normal sign out
       const { error } = await supabase.auth.signOut()
-      if (error) throw error
+      
+      if (error) {
+        console.error('❌ Sign out error:', error)
+        
+        // Handle specific auth session errors gracefully
+        if (error.name === 'AuthSessionMissingError' || 
+            error.message?.includes('Auth session missing') ||
+            error.message?.includes('session missing')) {
+          console.log('🔄 Session already expired during sign out, clearing local data')
+          clearSupabaseStorage()
+          setUser(null)
+          setProfile(null)
+          console.log('✅ User signed out successfully (session was expired)')
+          return // Don't throw error for expired sessions
+        }
+        
+        // For other errors, still clear local data but throw the error
+        clearSupabaseStorage()
+        setUser(null)
+        setProfile(null)
+        console.log('⚠️ Sign out completed with error, local data cleared')
+        throw error
+      }
+      
       clearSupabaseStorage()
       console.log('✅ User signed out successfully')
     } catch (error) {
-      console.error('❌ Sign out error:', error)
+      console.error('❌ Unexpected sign out error:', error)
+      
+      // Always clear local state even if sign out fails
+      clearSupabaseStorage()
+      setUser(null)
+      setProfile(null)
+      
+      // Don't throw auth session missing errors
+      if (error.name === 'AuthSessionMissingError' || 
+          error.message?.includes('Auth session missing')) {
+        console.log('✅ Sign out completed (session was already expired)')
+        return
+      }
+      
       throw error
     }
   }
@@ -319,12 +442,22 @@ export const AuthProvider = ({ children }) => {
     if (!user) throw new Error('No user logged in')
     try {
       console.log('📝 Updating profile for user:', user.id)
+      setSessionError(null) // Clear any existing session errors
+      
       const updated = await db.updateProfile(user.id, updates)
       setProfile(updated)
       console.log('✅ Profile updated successfully')
       return updated
     } catch (error) {
       console.error('❌ Profile update error:', error)
+      
+      // Check if it's an auth error
+      if (error.message?.includes('JWT') || 
+          error.message?.includes('auth') || 
+          error.code === 'PGRST301') {
+        setSessionError(error)
+      }
+      
       throw error
     }
   }
@@ -332,13 +465,22 @@ export const AuthProvider = ({ children }) => {
   const resetPassword = async (email) => {
     try {
       console.log('🔑 Resetting password for:', email)
+      setSessionError(null) // Clear any existing session errors
+      
       const { error } = await supabase.auth.resetPasswordForEmail(email)
       if (error) throw error
       console.log('✅ Password reset email sent')
     } catch (error) {
       console.error('❌ Password reset error:', error)
+      setSessionError(error)
       throw error
     }
+  }
+
+  // Helper to refresh profile when needed
+  const refreshProfile = async () => {
+    if (!user) return null
+    return await loadProfile(user)
   }
 
   const hasRole = (role) => profile?.role === role
@@ -351,16 +493,24 @@ export const AuthProvider = ({ children }) => {
     user,
     profile,
     loading,
+    sessionError,
     signUp,
     signIn,
     signOut,
     updateProfile,
     resetPassword,
+    refreshProfile,
     hasRole,
     hasAnyRole,
     canAccessBase,
     canManageTickets,
-    canViewAllTickets
+    canViewAllTickets,
+    // Helper flags
+    isAuthenticated: !!user,
+    isAdmin: hasRole('Admin'),
+    isHIS: hasRole('HIS'),
+    isUser: hasRole('User'),
+    isViewer: hasRole('Viewer'),
   }
 
   return (
@@ -370,6 +520,11 @@ export const AuthProvider = ({ children }) => {
           <div className="text-center">
             <div className="animate-spin h-10 w-10 rounded-full border-t-4 border-blue-500 border-solid mx-auto mb-4"></div>
             <p className="text-gray-600">Loading...</p>
+            {sessionError && (
+              <p className="text-xs text-red-500 mt-2">
+                Session issue detected - {sessionError.message}
+              </p>
+            )}
             <p className="text-xs text-gray-400 mt-2">Check console for detailed logs</p>
           </div>
         </div>

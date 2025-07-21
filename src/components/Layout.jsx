@@ -16,16 +16,33 @@ import {
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const { user, profile, signOut } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
 
   const handleSignOut = async () => {
+    if (isSigningOut) return; // Prevent multiple clicks
+    
     try {
+      setIsSigningOut(true)
+      
+      // Use the enhanced signOut method from AuthContext
       await signOut()
-      navigate('/login')
+      
+      // Navigate to login after successful sign out
+      navigate('/login', { replace: true })
     } catch (error) {
       console.error('Error signing out:', error)
+      
+      // The AuthContext now handles AuthSessionMissingError gracefully,
+      // but if we still get an error, redirect anyway
+      navigate('/login', { replace: true })
+      
+      // Optional: Show a toast or notification about the error
+      // You can add your notification system here if you have one
+    } finally {
+      setIsSigningOut(false)
     }
   }
 
@@ -62,6 +79,8 @@ const Layout = () => {
             navigation={filteredNavigation} 
             isCurrentPage={isCurrentPage}
             profile={profile}
+            onSignOut={handleSignOut}
+            isSigningOut={isSigningOut}
           />
         </div>
       </div>
@@ -72,6 +91,8 @@ const Layout = () => {
           navigation={filteredNavigation} 
           isCurrentPage={isCurrentPage}
           profile={profile}
+          onSignOut={handleSignOut}
+          isSigningOut={isSigningOut}
         />
       </div>
 
@@ -118,8 +139,11 @@ const Layout = () => {
                   </div>
                   <button
                     onClick={handleSignOut}
-                    className="p-2 text-gray-400 hover:text-gray-500"
-                    title="Sign out"
+                    disabled={isSigningOut}
+                    className={`p-2 text-gray-400 hover:text-gray-500 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isSigningOut ? 'animate-pulse' : ''
+                    }`}
+                    title={isSigningOut ? 'Signing out...' : 'Sign out'}
                   >
                     <LogOut className="h-5 w-5" />
                   </button>
@@ -142,23 +166,23 @@ const Layout = () => {
   )
 }
 
-const SidebarContent = ({ navigation, isCurrentPage, profile }) => {
+const SidebarContent = ({ navigation, isCurrentPage, profile, onSignOut, isSigningOut }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-white border-r border-gray-200">
       <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
         <div className="flex items-center flex-shrink-0 px-4">
           <div className="flex flex-col items-center px-6 pt-6 pb-4 bg-white border-b border-gray-200 shadow-sm">
-  <div className="bg-white p-2 rounded-md shadow-md">
-    <img
-      src={logo}
-      alt="TicketHub Logo"
-      className="h-12 w-auto object-contain"
-    />
-  </div>
-  <span className="mt-3 text-lg font-bold text-gray-800 tracking-wide">
-    TicketHub
-  </span>
-</div>
+            <div className="bg-white p-2 rounded-md shadow-md">
+              <img
+                src={logo}
+                alt="TicketHub Logo"
+                className="h-12 w-auto object-contain"
+              />
+            </div>
+            <span className="mt-3 text-lg font-bold text-gray-800 tracking-wide">
+              TicketHub
+            </span>
+          </div>
         </div>
         <nav className="mt-8 flex-1 px-2 space-y-1">
           {navigation.map((item) => {
@@ -187,14 +211,27 @@ const SidebarContent = ({ navigation, isCurrentPage, profile }) => {
       
       {/* User info at bottom */}
       <div className="flex-shrink-0 border-t border-gray-200 p-4">
-        <div className="flex items-center">
-          <div className="h-8 w-8 rounded-full bg-primary-600 flex items-center justify-center">
-            <User className="h-4 w-4 text-white" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="h-8 w-8 rounded-full bg-primary-600 flex items-center justify-center">
+              <User className="h-4 w-4 text-white" />
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-900">{profile?.full_name}</p>
+              <p className="text-xs text-gray-500">{profile?.role} • {profile?.base}</p>
+            </div>
           </div>
-          <div className="ml-3">
-            <p className="text-sm font-medium text-gray-900">{profile?.full_name}</p>
-            <p className="text-xs text-gray-500">{profile?.role} • {profile?.base}</p>
-          </div>
+          {/* Sign out button for mobile sidebar */}
+          <button
+            onClick={onSignOut}
+            disabled={isSigningOut}
+            className={`p-1 text-gray-400 hover:text-gray-500 disabled:opacity-50 disabled:cursor-not-allowed md:hidden ${
+              isSigningOut ? 'animate-pulse' : ''
+            }`}
+            title={isSigningOut ? 'Signing out...' : 'Sign out'}
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>
