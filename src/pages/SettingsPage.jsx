@@ -902,6 +902,9 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
   const [bases, setBases] = useState(allBases)
   const [search, setSearch] = useState('')
 
+  // Available roles for the dropdown
+  const availableRoles = ['User', 'HIS', 'Admin']
+
   // Debug logging to understand data structure
   useEffect(() => {
     console.log('🔍 Debug - All Users:', allUsers)
@@ -969,6 +972,25 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
     }
   }
 
+  const handleRoleChange = async (userId, newRole) => {
+    console.log(`🔄 Changing role for user ${userId} to ${newRole}`)
+    
+    setUpdating(true)
+    try {
+      await db.updateProfile(userId, { role: newRole })
+      toast.success(`Role updated to ${newRole} successfully`)
+      
+      // Refresh the data after successful update
+      await fetchUsersAndBases()
+      
+    } catch (error) {
+      console.error('❌ Failed to update user role:', error)
+      toast.error(`Failed to update role: ${error.message}`)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
   // Helper function to check if user has a specific base
   const userHasBase = (user, baseId) => {
     if (!user.bases || !Array.isArray(user.bases)) {
@@ -996,7 +1018,8 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
   // Filter users based on search
   const filteredUsers = users.filter(user =>
     user.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    user.email?.toLowerCase().includes(search.toLowerCase())
+    user.email?.toLowerCase().includes(search.toLowerCase()) ||
+    user.role?.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -1004,9 +1027,9 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
       <div className="card-header">
         <div className="flex justify-between items-center">
           <div>
-            <h3 className="text-lg font-medium text-gray-900">Manage User Bases</h3>
+            <h3 className="text-lg font-medium text-gray-900">Manage Users</h3>
             <p className="text-sm text-gray-600">
-              Assign one or more bases to users. Only Admins can manage bases.
+              Assign bases and manage roles for users. Only Admins can manage users.
             </p>
           </div>
           <button
@@ -1036,7 +1059,7 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
               <input
                 type="text"
                 className="form-input w-full"
-                placeholder="Search users by name or email..."
+                placeholder="Search users by name, email, or role..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -1073,9 +1096,17 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
                       <div className="flex-1">
                         <div className="font-semibold text-gray-900">{user.full_name}</div>
                         <div className="text-xs text-gray-500">{user.email}</div>
-                        <div className="text-xs text-gray-400">Role: {user.role}</div>
-                        <div className="text-xs text-gray-400">
-                          Current bases: {user.bases?.length || 0}
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            user.role === 'Admin' ? 'bg-red-100 text-red-800' :
+                            user.role === 'HIS' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {user.role}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {user.bases?.length || 0} bases
+                          </span>
                         </div>
                       </div>
                       <button
@@ -1091,62 +1122,111 @@ const ManageBasesTab = ({ allUsers, allBases, basesLoading, refresh }) => {
                       </button>
                     </div>
 
-                    {/* Base Management (only show when user is selected) */}
+                    {/* Management Section (only show when user is selected) */}
                     {selectedUserId === user.id && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <div className="font-medium text-sm mb-3 text-gray-700">
-                          Manage Bases:
+                      <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                        
+                        {/* Role Management */}
+                        <div>
+                          <div className="font-medium text-sm mb-2 text-gray-700 flex items-center gap-2">
+                            <User className="w-4 h-4" />
+                            Change Role:
+                          </div>
+                          <select
+                            value={user.role}
+                            onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                            disabled={updating}
+                            className={`form-input text-sm ${updating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            {availableRoles.map(role => (
+                              <option key={role} value={role}>
+                                {role}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Select the appropriate role for this user
+                          </p>
                         </div>
-                        
-                        {bases.length === 0 ? (
-                          <div className="text-sm text-gray-500">No bases available</div>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {bases.map(base => {
-                              const hasBase = userHasBase(user, base.id)
-                              
-                              return (
-                                <button
-                                  key={base.id}
-                                  className={`px-3 py-1 rounded-full border flex items-center gap-1 text-xs transition-all duration-200 ${
-                                    hasBase
-                                      ? 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200'
-                                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300'
-                                  } ${updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                  disabled={updating}
-                                  onClick={() => handleBaseChange(base.id, !hasBase)}
-                                  title={hasBase ? `Remove ${base.name}` : `Add ${base.name}`}
-                                >
-                                  {updating ? (
-                                    <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"></div>
-                                  ) : hasBase ? (
-                                    <Check className="w-3 h-3" />
-                                  ) : (
-                                    <Plus className="w-3 h-3" />
-                                  )}
-                                  {base.name}
-                                </button>
-                              )
-                            })}
+
+                        {/* Base Management */}
+                        <div>
+                          <div className="font-medium text-sm mb-3 text-gray-700 flex items-center gap-2">
+                            <Database className="w-4 h-4" />
+                            Manage Bases:
                           </div>
-                        )}
-                        
-                        {/* Current Bases Display */}
-                        {user.bases && user.bases.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="text-xs text-gray-500 mb-1">Currently assigned to:</div>
-                            <div className="flex flex-wrap gap-1">
-                              {user.bases.map((userBase, index) => (
-                                <span 
-                                  key={index}
-                                  className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
-                                >
-                                  {typeof userBase === 'object' ? userBase.name : userBase}
-                                </span>
-                              ))}
+                          
+                          {bases.length === 0 ? (
+                            <div className="text-sm text-gray-500">No bases available</div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {bases.map(base => {
+                                const hasBase = userHasBase(user, base.id)
+                                
+                                return (
+                                  <button
+                                    key={base.id}
+                                    className={`px-3 py-1 rounded-full border flex items-center gap-1 text-xs transition-all duration-200 ${
+                                      hasBase
+                                        ? 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200'
+                                        : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300'
+                                    } ${updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                    disabled={updating}
+                                    onClick={() => handleBaseChange(base.id, !hasBase)}
+                                    title={hasBase ? `Remove ${base.name}` : `Add ${base.name}`}
+                                  >
+                                    {updating ? (
+                                      <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"></div>
+                                    ) : hasBase ? (
+                                      <Check className="w-3 h-3" />
+                                    ) : (
+                                      <Plus className="w-3 h-3" />
+                                    )}
+                                    {base.name}
+                                  </button>
+                                )
+                              })}
                             </div>
+                          )}
+                          
+                          {/* Current Assignments Display */}
+                          {user.bases && user.bases.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <div className="text-xs text-gray-500 mb-1">Currently assigned to:</div>
+                              <div className="flex flex-wrap gap-1">
+                                {user.bases.map((userBase, index) => (
+                                  <span 
+                                    key={index}
+                                    className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
+                                  >
+                                    {typeof userBase === 'object' ? userBase.name : userBase}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Quick Actions */}
+                        <div className="pt-3 border-t border-gray-100">
+                          <div className="text-xs text-gray-500 mb-2">Quick Actions:</div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                // Remove all bases
+                                user.bases?.forEach(userBase => {
+                                  const baseId = typeof userBase === 'object' ? userBase.id : userBase
+                                  handleBaseChange(baseId, false)
+                                })
+                              }}
+                              disabled={updating || !user.bases?.length}
+                              className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-3 h-3 inline mr-1" />
+                              Remove All Bases
+                            </button>
                           </div>
-                        )}
+                        </div>
                       </div>
                     )}
                   </div>
